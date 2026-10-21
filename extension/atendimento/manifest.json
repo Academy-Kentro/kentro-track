@@ -1,0 +1,29 @@
+{
+  "manifestVersion": 1,
+  "id": "kentro.track",
+  "version": "0.1.0",
+  "name": "Kentro Track — Atendimento",
+  "description": "De onde veio este lead: anúncio, criativo e respostas do formulário, com botões de qualificação e venda.",
+  "author": { "name": "Kentro" },
+  "requires": [],
+  "config": [
+    {
+      "key": "api_url",
+      "type": "url",
+      "label": "Endereço da API do Kentro Track",
+      "help": "Já vem preenchido. Só altere se o suporte pedir.",
+      "required": true,
+      "default": "__URL_PUBLICA__"
+    },
+    {
+      "key": "chave_atendimento",
+      "type": "secret",
+      "label": "Chave de atendimento",
+      "help": "Gerada no Kentro Track — Gestão, ao criar a conta.",
+      "required": true
+    }
+  ],
+  "contributions": [
+    { "id": "origem", "type": "chatPanel", "title": "Origem do lead", "url": "painel.html" }
+  ]
+}

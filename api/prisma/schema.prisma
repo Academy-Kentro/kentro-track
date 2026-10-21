@@ -1,0 +1,35 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum StatusConta {
+  pendente_conexao
+  ativa
+  reconectar
+  bloqueada
+}
+
+/// Um cliente do Kentro Track: nasce na extensão de Gestão ("Criar minha conta").
+model Conta {
+  id                   String      @id @default(uuid()) @db.Uuid
+  nome                 String?
+  /// Domínio da instância da Kentro que criou a conta (ctx.instance.domain). Só informativo.
+  instanciaKentro      String?     @map("instancia_kentro")
+  chaveAdminHash       String      @unique @map("chave_admin_hash")
+  chaveGestorHash      String      @unique @map("chave_gestor_hash")
+  chaveAtendimentoHash String      @unique @map("chave_atendimento_hash")
+  status               StatusConta @default(pendente_conexao)
+  plano                String      @default("gratis")
+  limites              Json        @default("{}")
+  fuso                 String      @default("America/Sao_Paulo")
+  moeda                String      @default("BRL")
+  criadoEm             DateTime    @default(now()) @map("criado_em")
+  atualizadoEm         DateTime    @updatedAt @map("atualizado_em")
+
+  @@map("contas")
+}

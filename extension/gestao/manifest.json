@@ -1,0 +1,36 @@
+{
+  "manifestVersion": 1,
+  "id": "kentro.track-gestao",
+  "version": "0.1.0",
+  "name": "Kentro Track — Gestão",
+  "description": "Resultados das campanhas do Meta cruzados com o atendimento: investimento, leads, CPL, vendas e ROAS por campanha e anúncio.",
+  "author": { "name": "Kentro" },
+  "requires": [],
+  "config": [
+    {
+      "key": "api_url",
+      "type": "url",
+      "label": "Endereço da API do Kentro Track",
+      "help": "Já vem preenchido. Só altere se o suporte pedir.",
+      "required": true,
+      "default": "__URL_PUBLICA__"
+    },
+    {
+      "key": "chave",
+      "type": "secret",
+      "label": "Chave do Kentro Track",
+      "help": "Deixe vazio na primeira instalação: a tela cria a conta e mostra a chave para colar aqui. Administradores usam a chave de admin; supervisores, a de gestor.",
+      "required": false
+    }
+  ],
+  "contributions": [
+    {
+      "id": "painel",
+      "type": "topMenu",
+      "title": "Kentro Track",
+      "url": "gestao.html",
+      "presentation": { "mode": "fullscreen" },
+      "visibility": { "userTypes": [0, 1] }
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "name": "kentro-track",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Kentro Track: campanhas do Meta cruzadas com o atendimento da Kentro (API e extensões).",
+  "//": "Pacote único (sem workspaces): a VPS instala as dependências antes de copiar as pastas do projeto.",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "prisma": {
+    "schema": "api/prisma/schema.prisma"
+  },
+  "scripts": {
+    "build": "prisma generate && tsc --noEmit -p extension/tsconfig.json && tsc -p api/tsconfig.build.json && node scripts/build-extensoes.mjs && node scripts/copiar-build.mjs",
+    "start": "node dist/main.js",
+    "test": "prisma generate && jest --config api/jest.config.js --runInBand",
+    "db:local": "node api/scripts/db-local.mjs"
+  },
+  "dependencies": {
+    "@nestjs/common": "^10.4.15",
+    "@nestjs/core": "^10.4.15",
+    "@nestjs/platform-express": "^10.4.15",
+    "@nestjs/throttler": "^6.7.1",
+    "@prisma/client": "^6.19.3",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.1",
+    "prisma": "^6.19.3",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1"
+  },
+  "devDependencies": {
+    "@nestjs/testing": "^10.4.15",
+    "@preact/preset-vite": "^2.9.0",
+    "@types/express": "^4.17.21",
+    "@types/jest": "^29.5.14",
+    "@types/node": "^20.17.0",
+    "@types/supertest": "^6.0.2",
+    "embedded-postgres": "^18.4.0-beta.17",
+    "jest": "^29.7.0",
+    "jest-environment-jsdom": "^29.7.0",
+    "preact": "^10.25.0",
+    "supertest": "^7.0.0",
+    "ts-jest": "^29.2.5",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.0"
+  }
+}

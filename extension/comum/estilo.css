@@ -1,0 +1,114 @@
+/* Reserva: a Kentro publica os tokens --ext-* antes deste estilo; :where() não os sobrescreve. */
+:where(:root) {
+  --ext-color-primary: #1f5f66;
+  --ext-color-on-primary: #fff;
+  --ext-color-bg: #fff;
+  --ext-color-border: #d2d2d2;
+  --ext-color-text: #1e1e1e;
+  --ext-color-text-muted: #565656;
+  --ext-color-error: #d93636;
+  --ext-color-success: #06a660;
+  --ext-radius: 4px;
+  --ext-font-family: Roboto, "Helvetica Neue", Arial, sans-serif;
+  --ext-font-size: 14px;
+  --ext-spacing: 8px;
+}
+
+/* Tons derivados dos tokens da Kentro: acompanham a cor da marca e o modo escuro. */
+:root {
+  --kt-r: max(8px, calc(var(--ext-radius) * 2));
+  --kt-superficie: color-mix(in srgb, var(--ext-color-text) 3.5%, var(--ext-color-bg));
+  --kt-linha: color-mix(in srgb, var(--ext-color-text) 11%, var(--ext-color-bg));
+  --kt-suave: color-mix(in srgb, var(--ext-color-primary) 10%, var(--ext-color-bg));
+  --kt-erro-suave: color-mix(in srgb, var(--ext-color-error) 10%, var(--ext-color-bg));
+  --kt-ok-suave: color-mix(in srgb, var(--ext-color-success) 10%, var(--ext-color-bg));
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--ext-font-family);
+  font-size: var(--ext-font-size);
+  color: var(--ext-color-text);
+  background: var(--ext-color-bg);
+  line-height: 1.45;
+}
+
+h1, h2, h3 { margin: 0 0 calc(var(--ext-spacing) * 1.5); line-height: 1.25; }
+h1 { font-size: 1.45em; }
+h2 { font-size: 1.15em; }
+h3 { font-size: 1em; }
+p { margin: 0 0 var(--ext-spacing); }
+
+.kt-muted { color: var(--ext-color-text-muted); font-size: .92em; }
+
+.kt-card {
+  border: 1px solid var(--kt-linha);
+  border-radius: var(--kt-r);
+  padding: calc(var(--ext-spacing) * 2);
+  background: var(--ext-color-bg);
+  margin-bottom: calc(var(--ext-spacing) * 2);
+}
+
+.kt-botao {
+  font: inherit;
+  border: 1px solid var(--ext-color-primary);
+  background: var(--ext-color-primary);
+  color: var(--ext-color-on-primary);
+  border-radius: var(--kt-r);
+  padding: 7px 14px;
+  cursor: pointer;
+}
+.kt-botao:disabled { opacity: .55; cursor: default; }
+.kt-botao-suave { background: var(--ext-color-bg); color: var(--ext-color-primary); }
+.kt-botao-perigo { background: var(--ext-color-bg); color: var(--ext-color-error); border-color: var(--ext-color-error); }
+
+.kt-campo { display: block; margin-bottom: calc(var(--ext-spacing) * 1.5); }
+.kt-campo span { display: block; font-weight: 600; margin-bottom: 4px; }
+.kt-campo input {
+  font: inherit;
+  width: 100%;
+  max-width: 420px;
+  padding: 7px 10px;
+  border: 1px solid var(--ext-color-border);
+  border-radius: var(--kt-r);
+  background: var(--ext-color-bg);
+  color: var(--ext-color-text);
+}
+
+.kt-aviso { border-radius: var(--kt-r); padding: 10px 12px; margin-bottom: calc(var(--ext-spacing) * 2); background: var(--kt-suave); }
+.kt-aviso-erro { background: var(--kt-erro-suave); }
+.kt-aviso-ok { background: var(--kt-ok-suave); }
+
+.kt-chave { border: 1px dashed var(--kt-linha); border-radius: var(--kt-r); padding: 12px; margin-bottom: 12px; background: var(--kt-superficie); }
+.kt-chave-topo { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.kt-chave-valor { display: block; word-break: break-all; font-size: .9em; user-select: all; margin-bottom: 6px; }
+
+.kt-selo {
+  display: inline-block;
+  font-size: .8em;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--kt-suave);
+  color: var(--ext-color-primary);
+}
+
+.kt-linha-acoes { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+pre.kt-json {
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  font-size: .8em;
+  background: var(--kt-superficie);
+  border: 1px solid var(--kt-linha);
+  border-radius: var(--kt-r);
+  padding: 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+ol.kt-passos { padding-left: 20px; margin: 0 0 12px; }
+ol.kt-passos li { margin-bottom: 8px; }

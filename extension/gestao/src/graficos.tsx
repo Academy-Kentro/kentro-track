@@ -172,3 +172,133 @@ export function Sparkline({ pontos, rotulo }: { pontos: number[]; rotulo: string
     </svg>
   );
 }
+
+export interface Barra {
+  rotulo: string;
+  valor: number;
+  /** Linha secundária na dica (ex.: "3 vendas · R$ 4.000,00"). */
+  detalhe?: string;
+}
+
+/**
+ * Ranking ou distribuição em barras horizontais, todas na mesma escala. Uma série só: uma cor,
+ * o título diz o que é. Rótulo à esquerda, valor na ponta, detalhe na dica (hover e foco).
+ */
+export function BarrasHorizontais({
+  titulo,
+  subtitulo,
+  barras,
+  formatar,
+  vazio = 'Sem dados no período.',
+}: {
+  titulo: string;
+  subtitulo?: string;
+  barras: Barra[];
+  formatar: (v: number) => string;
+  vazio?: string;
+}) {
+  const [ativa, setAtiva] = useState<number | null>(null);
+  const maximo = Math.max(...barras.map((b) => b.valor), 0);
+  return (
+    <figure class="kt-grafico kt-barras">
+      <figcaption class="kt-grafico-topo">
+        <div>
+          <h3>{titulo}</h3>
+          {subtitulo && <p class="kt-muted">{subtitulo}</p>}
+        </div>
+      </figcaption>
+      {barras.length === 0 || maximo === 0 ? (
+        <p class="kt-muted kt-barras-vazio">{vazio}</p>
+      ) : (
+        <ul class="kt-barras-lista" onPointerLeave={() => setAtiva(null)}>
+          {barras.map((b, i) => (
+            <li
+              key={`${b.rotulo}-${i}`}
+              class={ativa === i ? 'kt-barra-ativa' : ''}
+              tabIndex={0}
+              aria-label={`${b.rotulo}: ${formatar(b.valor)}${b.detalhe ? ` (${b.detalhe})` : ''}`}
+              onPointerEnter={() => setAtiva(i)}
+              onFocus={() => setAtiva(i)}
+              onBlur={() => setAtiva(null)}
+            >
+              <span class="kt-barra-rotulo" title={b.rotulo}>
+                {b.rotulo}
+              </span>
+              <span class="kt-barra-trilho" aria-hidden="true">
+                <span class="kt-barra-preenchida" style={{ width: `${b.valor > 0 ? Math.max(1.5, (b.valor / maximo) * 100) : 0}%` }} />
+              </span>
+              <span class="kt-barra-valor">{formatar(b.valor)}</span>
+              {ativa === i && b.detalhe && (
+                <span class="kt-dica kt-barra-dica" role="status">
+                  <strong>{b.rotulo}</strong>
+                  <span>{b.detalhe}</span>
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </figure>
+  );
+}
+
+const DIAS = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
+const DIAS_LONGOS = ['segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado', 'domingo'];
+
+/**
+ * Mapa de calor dia da semana × hora (sequencial: um tom só, do claro ao escuro, em 5 degraus).
+ * Cada célula tem dica no hover e no foco; a legenda mostra o que cada degrau significa.
+ */
+export function MapaCalor({ titulo, subtitulo, celulas }: { titulo: string; subtitulo?: string; celulas: { diaSemana: number; hora: number; leads: number }[] }) {
+  const [ativa, setAtiva] = useState<{ d: number; h: number } | null>(null);
+  const valor = new Map(celulas.map((c) => [`${c.diaSemana}|${c.hora}`, c.leads]));
+  const maximo = Math.max(1, ...celulas.map((c) => c.leads));
+  const degrau = (v: number) => (v <= 0 ? 0 : Math.min(5, Math.ceil((v / maximo) * 5)));
+  const atual = ativa ? valor.get(`${ativa.d}|${ativa.h}`) ?? 0 : null;
+  return (
+    <figure class="kt-grafico kt-calor">
+      <figcaption class="kt-grafico-topo">
+        <div>
+          <h3>{titulo}</h3>
+          {subtitulo && <p class="kt-muted">{subtitulo}</p>}
+        </div>
+        <span class="kt-calor-leitura" aria-live="polite">
+          {ativa ? `${DIAS_LONGOS[ativa.d - 1]}, ${ativa.h}h: ${atual} ${atual === 1 ? 'lead' : 'leads'}` : ''}
+        </span>
+      </figcaption>
+      <div class="kt-calor-grade" onPointerLeave={() => setAtiva(null)}>
+        <span />
+        {Array.from({ length: 24 }, (_, h) => (
+          <span key={`h${h}`} class="kt-calor-hora">
+            {h % 3 === 0 ? `${h}h` : ''}
+          </span>
+        ))}
+        {DIAS.map((dia, i) => [
+          <span key={`d${i}`} class="kt-calor-dia">
+            {dia}
+          </span>,
+          ...Array.from({ length: 24 }, (_, h) => {
+            const v = valor.get(`${i + 1}|${h}`) ?? 0;
+            return (
+              <span
+                key={`${i}-${h}`}
+                class={`kt-calor-celula kt-calor-${degrau(v)}`}
+                tabIndex={0}
+                aria-label={`${DIAS_LONGOS[i]}, ${h}h: ${v} leads`}
+                onPointerEnter={() => setAtiva({ d: i + 1, h })}
+                onFocus={() => setAtiva({ d: i + 1, h })}
+              />
+            );
+          }),
+        ])}
+      </div>
+      <div class="kt-calor-legenda" aria-hidden="true">
+        <span>Menos</span>
+        {[0, 1, 2, 3, 4, 5].map((n) => (
+          <span key={n} class={`kt-calor-celula kt-calor-${n}`} />
+        ))}
+        <span>Mais (até {maximo})</span>
+      </div>
+    </figure>
+  );
+}

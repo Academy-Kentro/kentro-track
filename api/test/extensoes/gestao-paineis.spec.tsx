@@ -471,3 +471,68 @@ describe('gestão: eventos para o Meta', () => {
     expect(texto()).toContain('Na fila');
   });
 });
+
+describe('gestão: aba Análises', () => {
+  const item = (nome: string, vendas: number, receita: number) => ({ idMeta: nome, nome, investimento: 1000, entradas: vendas * 5, vendas, receita, roas: receita / 1000, custoPorVenda: 1000 / Math.max(1, vendas) });
+  const ANALISES = {
+    moeda: 'BRL',
+    periodo: { de: '2026-10-01', ate: '2026-10-03' },
+    origens: { total: 10, percentualRastreado: 80, itens: [{ origem: 'ctwa', leads: 8, vendas: 2, receita: 3000 }, { origem: 'organico', leads: 2, vendas: 0, receita: 0 }] },
+    porDia: [
+      { data: '2026-10-01', entradas: 4, vendas: 1, receita: 1000 },
+      { data: '2026-10-02', entradas: 0, vendas: 0, receita: 0 },
+      { data: '2026-10-03', entradas: 6, vendas: 1, receita: 2000 },
+    ],
+    etapas: { novo: 2, venda: 2, descartado: 1 },
+    motivosDescarte: [{ motivo: 'Sem orçamento', leads: 1 }],
+    estados: { itens: [{ uf: 'SP', leads: 6, vendas: 2 }, { uf: 'MG', leads: 3, vendas: 0 }], semEstado: 1 },
+    horario: [{ diaSemana: 1, hora: 14, leads: 5 }],
+    tempoAtendimento: { faixas: [{ id: 'ate5', rotulo: 'Até 5 min', leads: 3 }, { id: 'mais', rotulo: 'Mais de 4 h', leads: 1 }], naoAtendidos: 6 },
+    ranking: { campanhas: [item('Black Friday', 2, 3000)], conjuntos: [item('Quente', 2, 3000)], anuncios: [] },
+  };
+
+  it('mostra origens com % rastreado, dia a dia, o que mais vende, jornada e mapa de calor numa chamada só', async () => {
+    const falso = await montar({ http: api({ '/v1/conta': CONTA, '/v1/painel/filtros': FILTROS, '/v1/painel/analises': ANALISES }) });
+    await clicar(botao('Análises'));
+    expect(falso.chamadas.filter((c) => c.url.includes('/v1/painel/analises'))).toHaveLength(1);
+    expect(texto()).toContain('80,0%');
+    const titulos = [...raiz.querySelectorAll('figure h3')].map((h) => h.textContent);
+    expect(titulos).toEqual([
+      'Leads por origem',
+      'Leads que chegaram',
+      'Vendas',
+      'Faturamento',
+      'Campanhas por faturamento',
+      'ROAS por campanha',
+      'Públicos que mais vendem',
+      'Criativos que mais vendem',
+      'Etapa atual dos leads',
+      'Motivos de descarte',
+      'Chegada de leads por dia e hora',
+      'Leads por estado',
+      'Tempo até o atendimento',
+    ]);
+    // Barras com rótulo e valor; anúncio sem venda mostra o vazio, não um gráfico zerado.
+    const origens = [...raiz.querySelectorAll('.kt-barras')][0];
+    expect([...origens.querySelectorAll('li')].map((li) => li.querySelector('.kt-barra-rotulo')!.textContent + '=' + li.querySelector('.kt-barra-valor')!.textContent)).toEqual([
+      'Anúncio de WhatsApp=8',
+      'Sem anúncio (orgânico)=2',
+    ]);
+    expect(texto()).toContain('Nenhuma venda de anúncio no período.');
+    expect(texto()).toContain('1 lead sem DDD brasileiro identificado');
+    // Mapa de calor: 7 dias × 24 horas, com a célula de segunda 14h no degrau mais alto.
+    const celulas = raiz.querySelectorAll('.kt-calor-grade .kt-calor-celula');
+    expect(celulas).toHaveLength(168);
+    expect(celulas[14].className).toContain('kt-calor-5');
+  });
+
+  it('dica da barra mostra o detalhe no foco do teclado', async () => {
+    await montar({ http: api({ '/v1/conta': CONTA, '/v1/painel/filtros': FILTROS, '/v1/painel/analises': ANALISES }) });
+    await clicar(botao('Análises'));
+    const campanha = [...raiz.querySelectorAll('.kt-barras')][1].querySelector('li')!;
+    await act(async () => {
+      campanha.dispatchEvent(new FocusEvent('focus'));
+    });
+    expect(campanha.querySelector('.kt-dica')?.textContent).toContain('2 vendas');
+  });
+});

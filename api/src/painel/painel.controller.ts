@@ -2,6 +2,7 @@ import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
 import { Type } from 'class-transformer';
 import { IsIn, IsInt, IsOptional, IsString, IsUUID, Length, Matches, Max, Min } from 'class-validator';
 import { ChaveContaGuard, Papeis, RequisicaoDaConta } from '../contas/chave-conta.guard';
+import { AnalisesService } from './analises.service';
 import { PainelService } from './painel.service';
 
 export class FiltroDto {
@@ -44,7 +45,10 @@ export class FiltroLeadsDto extends FiltroDto {
 @UseGuards(ChaveContaGuard)
 @Papeis('admin', 'gestor')
 export class PainelController {
-  constructor(private readonly painel: PainelService) {}
+  constructor(
+    private readonly painel: PainelService,
+    private readonly analisesService: AnalisesService,
+  ) {}
 
   @Get('filtros')
   filtros(@Req() req: RequisicaoDaConta) {
@@ -69,6 +73,11 @@ export class PainelController {
   @Get('leads')
   leads(@Req() req: RequisicaoDaConta, @Query() filtro: FiltroLeadsDto) {
     return this.painel.leads(req.conta.id, filtro);
+  }
+
+  @Get('analises')
+  analises(@Req() req: RequisicaoDaConta, @Query() filtro: FiltroDto) {
+    return this.analisesService.analises(req.conta.id, filtro);
   }
 
   @Get('equipe')

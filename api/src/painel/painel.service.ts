@@ -43,6 +43,11 @@ interface Escopo {
   onde: (de: string, ate: string) => Prisma.Sql;
   /** Leads pelo dia em que chegaram, no fuso da conta (recebido_em é timestamp UTC sem fuso). */
   ondeLeads: (de: string, ate: string, incluirOrganicos?: boolean) => Prisma.Sql;
+  /** Os mesmos filtros de conta, conta de anúncio e campanha, sem a data (para datar por outra coluna). */
+  filtroLeads: (incluirOrganicos?: boolean) => Prisma.Sql;
+  /** Instante de uma coluna de leads como hora local da conta (timestamp sem fuso). */
+  horaLocal: (coluna: 'recebido_em' | 'venda_em' | 'atendido_em') => Prisma.Sql;
+  fuso: string;
 }
 
 interface LinhaLead {
@@ -86,7 +91,7 @@ export class PainelService {
    * Contas de anúncio do filtro (só as selecionadas) e a cláusula WHERE comum.
    * Os dias vão como texto: um Date viraria timestamptz e o ::date dependeria do fuso da sessão do Postgres.
    */
-  private async escopo(contaId: string, filtro: Filtro): Promise<Escopo> {
+  async escopo(contaId: string, filtro: Filtro): Promise<Escopo> {
     this.validar(filtro);
     const contas = await this.prisma.contaAnuncio.findMany({
       where: { contaId, selecionada: true, ...(filtro.contaAnuncio ? { id: filtro.contaAnuncio } : {}) },
@@ -104,13 +109,16 @@ export class PainelService {
       AND i.data BETWEEN ${de}::date AND ${ate}::date
       ${filtro.campanha ? Prisma.sql`AND i.campanha_id_meta = ${filtro.campanha}` : Prisma.empty}`;
     const { fuso } = await this.prisma.conta.findUniqueOrThrow({ where: { id: contaId }, select: { fuso: true } });
-    const ondeLeads = (de: string, ate: string, incluirOrganicos = false) => Prisma.sql`
+    const horaLocal = (coluna: 'recebido_em' | 'venda_em' | 'atendido_em') => Prisma.sql`((${Prisma.raw(`l.${coluna}`)} AT TIME ZONE 'UTC') AT TIME ZONE ${fuso})`;
+    const filtroLeads = (incluirOrganicos = false) => Prisma.sql`
       l.conta_id = ${contaId}::uuid
       ${incluirOrganicos ? Prisma.empty : Prisma.sql`AND l.origem <> 'organico'`}
-      AND ((l.recebido_em AT TIME ZONE 'UTC') AT TIME ZONE ${fuso})::date BETWEEN ${de}::date AND ${ate}::date
       ${filtro.contaAnuncio ? Prisma.sql`AND l.conta_anuncio_id = ${filtro.contaAnuncio}::uuid` : Prisma.empty}
       ${filtro.campanha ? Prisma.sql`AND l.campanha_id_meta = ${filtro.campanha}` : Prisma.empty}`;
-    return { contas, moeda: moedas[0] ?? 'BRL', onde, ondeLeads };
+    const ondeLeads = (de: string, ate: string, incluirOrganicos = false) => Prisma.sql`
+      ${filtroLeads(incluirOrganicos)}
+      AND ${horaLocal('recebido_em')}::date BETWEEN ${de}::date AND ${ate}::date`;
+    return { contas, moeda: moedas[0] ?? 'BRL', onde, ondeLeads, filtroLeads, horaLocal, fuso };
   }
 
   private situacao(contas: ContaAnuncio[]) {

@@ -3,6 +3,7 @@ import { Api, criarApi, ErroTrack, lerConfigInstalacao, mensagemDeErro } from '.
 import { Aviso, Carregando, Vazio } from '../../comum/componentes';
 import { Icone, NomeIcone } from '../../comum/icones';
 import type { CtxOmni, Omni } from '../../comum/omni';
+import { Analises, DadosAnalises } from './analises';
 import { Campanhas } from './campanhas';
 import { Configuracoes } from './configuracoes';
 import { Criativos } from './criativos';
@@ -16,6 +17,7 @@ type Estado = { tipo: 'carregando' } | { tipo: 'sem_chave' } | { tipo: 'erro'; m
 
 const ABAS: readonly { id: string; titulo: string; icone: NomeIcone; soAdmin?: true }[] = [
   { id: 'visao', titulo: 'Visão geral', icone: 'grafico' },
+  { id: 'analises', titulo: 'Análises', icone: 'funil' },
   { id: 'campanhas', titulo: 'Campanhas', icone: 'megafone' },
   { id: 'criativos', titulo: 'Criativos', icone: 'imagem' },
   { id: 'leads', titulo: 'Leads', icone: 'lista' },
@@ -23,7 +25,7 @@ const ABAS: readonly { id: string; titulo: string; icone: NomeIcone; soAdmin?: t
   { id: 'config', titulo: 'Configurações', icone: 'ajustes', soAdmin: true },
 ] as const;
 
-type IdAba = 'visao' | 'campanhas' | 'criativos' | 'leads' | 'equipe' | 'config';
+type IdAba = 'visao' | 'analises' | 'campanhas' | 'criativos' | 'leads' | 'equipe' | 'config';
 
 const PAPEL: Record<Conta['papel'], string> = { admin: 'Administrador', gestor: 'Gestor', atendimento: 'Atendimento' };
 const FILTRO_SALVO = 'filtro';
@@ -61,6 +63,7 @@ function Paineis({ omni, api, conta, aba, irPara }: { omni: Omni; api: Api; cont
   const pronto = !!opcoes.dados && opcoes.dados.contasAnuncio.length > 0;
 
   const visao = useDados<DadosVisao>(api, pronto && aba === 'visao' ? `/v1/painel/visao-geral?${q}` : null, intervalo);
+  const analises = useDados<DadosAnalises>(api, pronto && aba === 'analises' ? `/v1/painel/analises?${q}` : null, intervalo);
   const campanhas = useDados<DadosCampanhas>(api, pronto && aba === 'campanhas' ? `/v1/painel/campanhas?${q}` : null, intervalo);
   const criativos = useDados<DadosCriativos>(api, pronto && aba === 'criativos' ? `/v1/painel/criativos?${q}` : null, intervalo);
   const qLeads = new URLSearchParams(q);
@@ -95,6 +98,7 @@ function Paineis({ omni, api, conta, aba, irPara }: { omni: Omni; api: Api; cont
     <>
       <BarraFiltros filtro={valido} opcoes={opcoes.dados} mudar={mudar} />
       {aba === 'visao' && <VisaoGeral carga={visao} />}
+      {aba === 'analises' && <Analises carga={analises} />}
       {aba === 'campanhas' && <Campanhas carga={campanhas} />}
       {aba === 'criativos' && <Criativos carga={criativos} />}
       {aba === 'leads' && <Leads omni={omni} carga={leads} filtro={filtroLeads} mudar={setFiltroLeads} />}

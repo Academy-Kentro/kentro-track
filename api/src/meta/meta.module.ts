@@ -7,6 +7,7 @@ import { CapiService } from '../capi/capi.service';
 import { ContasModule } from '../contas/contas.module';
 import { AtendimentoController, KentroController } from '../leads/leads.controller';
 import { LeadsService } from '../leads/leads.service';
+import { AnalisesService } from '../painel/analises.service';
 import { MidiaController } from '../painel/midia.controller';
 import { PainelController } from '../painel/painel.controller';
 import { PainelService } from '../painel/painel.service';
@@ -47,6 +48,7 @@ import { SincronizacaoService } from './sincronizacao/sincronizacao.service';
     SincronizacaoService,
     AgendaSincronizacao,
     PainelService,
+    AnalisesService,
     LeadsService,
     CapiService,
   ],

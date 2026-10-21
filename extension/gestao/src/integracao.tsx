@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'preact/hooks';
 import { Api, mensagemDeErro } from '../../comum/api';
-import { Aviso, BotaoCopiar, Carregando } from '../../comum/componentes';
+import { Aviso, BotaoCopiar, Carregando, Secao } from '../../comum/componentes';
 import type { Omni } from '../../comum/omni';
 
 interface Integracao {
@@ -45,8 +45,7 @@ export function IntegracaoAtendimento({ omni, api }: { omni: Omni; api: Api }) {
   };
 
   return (
-    <section class="kt-card">
-      <h2>Integração com o atendimento</h2>
+    <Secao icone="link" titulo="Integração com o atendimento" descricao="Automações da Kentro avisam o Kentro Track por requisição HTTP">
       <p>
         O painel <strong>Origem do lead</strong> já registra cada conversa aberta por um atendente. Para contar também os leads que só a IA ou a fila
         atenderam, e para as vendas marcadas no CRM entrarem no ROAS, adicione um elemento de <strong>requisição HTTP</strong> nas automações abaixo.
@@ -67,10 +66,8 @@ export function IntegracaoAtendimento({ omni, api }: { omni: Omni; api: Api }) {
           {EVENTOS.map((e) => {
             const corpo = JSON.stringify(dados.exemplos[e.id], null, 2);
             return (
-              <details key={e.id} class="kt-evento" open={e.id === 'chat_iniciado'}>
-                <summary>
-                  <strong>{e.titulo}</strong>
-                </summary>
+              <details key={e.id} class="kt-sanfona" open={e.id === 'chat_iniciado'}>
+                <summary>{e.titulo}</summary>
                 <p class="kt-muted">{e.onde}</p>
                 <pre class="kt-json">{corpo}</pre>
                 <div class="kt-linha-acoes" style={{ marginTop: '6px' }}>
@@ -86,6 +83,6 @@ export function IntegracaoAtendimento({ omni, api }: { omni: Omni; api: Api }) {
           </div>
         </>
       )}
-    </section>
+    </Secao>
   );
 }

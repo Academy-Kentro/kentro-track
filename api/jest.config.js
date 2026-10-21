@@ -6,9 +6,9 @@ module.exports = {
   testEnvironment: 'node',
   testRegex: 'test/.*\\.(e2e-)?spec\\.tsx?$',
   transform: {
-    // Extensões (Preact) e os testes delas: JSX do Preact e DOM, com o tsconfig das extensões.
-    '(extension|test[\\\\/]extensoes)[\\\\/].+\\.tsx?$': ['ts-jest', { tsconfig: path.join(__dirname, '..', 'extension', 'tsconfig.jest.json') }],
-    '^.+\\.ts$': ['ts-jest', { tsconfig: path.join(__dirname, 'tsconfig.json') }],
+    // UMA configuração só, para API e extensões (o tsconfig da API já tem o JSX do Preact). Com duas, o
+    // ts-jest chegou a compilar a API com a das extensões (sem decorators) conforme a ordem das suítes.
+    '^.+\\.tsx?$': ['ts-jest', { tsconfig: path.join(__dirname, 'tsconfig.json') }],
   },
   moduleFileExtensions: ['ts', 'tsx', 'js', 'json'],
   // Subir o app Nest com o cache do ts-jest frio passa de 5 s; o padrão derrubava o beforeAll

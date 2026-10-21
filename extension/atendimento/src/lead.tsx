@@ -2,6 +2,7 @@ import { useState } from 'preact/hooks';
 import { Api, mensagemDeErro } from '../../comum/api';
 import { Aviso } from '../../comum/componentes';
 import { dinheiro, haQuanto } from '../../comum/formato';
+import { Icone, NomeIcone } from '../../comum/icones';
 import { avisar } from '../../comum/omni';
 
 export type Etapa = 'novo' | 'em_atendimento' | 'qualificado' | 'venda' | 'descartado';
@@ -47,6 +48,8 @@ export const ETAPA: Record<Etapa, string> = {
 
 const MOTIVOS = ['Sem interesse', 'Sem orçamento', 'Não respondeu', 'Fora do perfil', 'Comprou com concorrente', 'Só pesquisando preço', 'Outro'];
 
+const ICONE_ORIGEM: Record<LeadPainel['origem'], NomeIcone> = { ctwa: 'megafone', formulario: 'formulario', link: 'link', organico: 'mensagem' };
+
 function Miniatura({ url }: { url: string | null }) {
   const [falhou, setFalhou] = useState(false);
   if (!url || falhou) return null;
@@ -57,30 +60,45 @@ export function Origem({ lead }: { lead: LeadPainel }) {
   const a = lead.anuncio;
   const titulo = a?.anuncio?.titulo ?? a?.titulo;
   const texto = a?.anuncio?.texto ?? a?.texto;
+  const aproximado = a?.vinculo === 'url' || a?.vinculo === 'texto';
   return (
     <section class="kt-card kt-origem">
-      <p class="kt-origem-topo">
-        <span class={`kt-selo${lead.origem === 'organico' ? ' kt-selo-neutro' : ''}`}>{ORIGEM[lead.origem]}</span>
-        <span class="kt-muted"> · chegou {haQuanto(lead.recebidoEm)}</span>
-      </p>
+      <div class="kt-origem-topo">
+        <span class={`kt-selo${lead.origem === 'organico' ? ' kt-selo-neutro' : ''}`}>
+          <Icone nome={ICONE_ORIGEM[lead.origem]} tamanho={12} />
+          {ORIGEM[lead.origem]}
+        </span>
+        <span class="kt-origem-quando">
+          <Icone nome="relogio" tamanho={12} />
+          chegou {haQuanto(lead.recebidoEm)}
+        </span>
+      </div>
       {a && (
         <div class="kt-anuncio">
           <Miniatura url={a.anuncio?.miniatura ?? null} />
-          <div>
-            {a.campanha?.nome && (
-              <p class="kt-trilha">
+          {titulo && <h3>{titulo}</h3>}
+          {texto && <p class="kt-anuncio-texto">{texto}</p>}
+          {a.campanha?.nome ? (
+            <p class="kt-trilha" title="Campanha › conjunto › anúncio">
+              <Icone nome="megafone" tamanho={12} />
+              <span>
                 {a.campanha.nome}
                 {a.conjunto && ` › ${a.conjunto.nome}`}
                 {a.anuncio && ` › ${a.anuncio.nome}`}
-              </p>
-            )}
-            {titulo && <h3>{titulo}</h3>}
-            {texto && <p class="kt-anuncio-texto">{texto}</p>}
-            {!a.campanha && <p class="kt-muted">Campanha ainda não identificada. Os números do Meta podem não ter sido sincronizados ainda.</p>}
-            {(a.vinculo === 'url' || a.vinculo === 'texto') && (
-              <p class="kt-muted">Anúncio identificado pelo {a.vinculo === 'url' ? 'link do post' : 'texto'}: confira se faz sentido.</p>
-            )}
-          </div>
+              </span>
+            </p>
+          ) : (
+            <p class="kt-muted kt-trilha">
+              <Icone nome="info" tamanho={12} />
+              <span>Campanha ainda não identificada. Os números do Meta podem não ter sido sincronizados ainda.</span>
+            </p>
+          )}
+          {aproximado && (
+            <p class="kt-aproximado">
+              <Icone nome="alerta" tamanho={12} />
+              <span>Anúncio identificado pelo {a.vinculo === 'url' ? 'link do post' : 'texto'}: confira se faz sentido.</span>
+            </p>
+          )}
         </div>
       )}
       {lead.respostas.length > 0 && (
@@ -97,7 +115,7 @@ export function Origem({ lead }: { lead: LeadPainel }) {
   );
 }
 
-/** Qualificado / Venda / Descartado: alimenta o funil do gestor (e, na Fase 3, o evento no pixel). */
+/** Qualificado / Venda / Descartado: alimenta o funil do gestor e o evento no pixel. */
 export function Etapas({ api, lead, mudar }: { api: Api; lead: LeadPainel; mudar: (l: LeadPainel) => void }) {
   const [aberto, setAberto] = useState<'venda' | 'descartado' | null>(null);
   const [valor, setValor] = useState('');
@@ -121,39 +139,32 @@ export function Etapas({ api, lead, mudar }: { api: Api; lead: LeadPainel; mudar
   const valorNumero = Number(valor.replace(/\./g, '').replace(',', '.'));
 
   return (
-    <section class="kt-card">
-      <p>
-        Etapa: <strong>{ETAPA[lead.etapa]}</strong>
-        {lead.etapa === 'venda' && lead.valorVenda != null && ` · ${dinheiro(lead.valorVenda)}`}
-        {lead.etapa === 'descartado' && lead.motivoDescarte && ` · ${lead.motivoDescarte}`}
-      </p>
-      {(lead.eventosMeta ?? []).length > 0 && (
-        <p class="kt-muted kt-eventos-meta">
-          Meta:{' '}
-          {lead.eventosMeta!.map((e, i) => (
-            <span key={e.gatilho}>
-              {i > 0 && ' · '}
-              {e.evento} {e.status === 'enviado' ? '✓' : e.status === 'pendente' ? '(na fila)' : '(erro)'}
-            </span>
-          ))}
-        </p>
-      )}
-      {erro && <Aviso tipo="erro">{erro}</Aviso>}
-      <div class="kt-linha-acoes">
-        <button type="button" class="kt-botao kt-botao-suave" disabled={enviando || lead.etapa === 'qualificado'} onClick={() => enviar('qualificado')}>
-          Qualificado
-        </button>
-        <button type="button" class="kt-botao" disabled={enviando} onClick={() => setAberto(aberto === 'venda' ? null : 'venda')}>
-          Venda
-        </button>
-        <button type="button" class="kt-botao kt-botao-perigo" disabled={enviando} onClick={() => setAberto(aberto === 'descartado' ? null : 'descartado')}>
-          Descartar
-        </button>
+    <section class="kt-card kt-etapas">
+      <div class="kt-etapa-atual">
+        <span class="kt-muted">Etapa:</span> <span class={`kt-etapa kt-etapa-${lead.etapa}`}>{ETAPA[lead.etapa]}</span>
+        {lead.etapa === 'venda' && lead.valorVenda != null && <strong> · {dinheiro(lead.valorVenda)}</strong>}
+        {lead.etapa === 'descartado' && lead.motivoDescarte && <span class="kt-muted"> · {lead.motivoDescarte}</span>}
         {(lead.etapa === 'venda' || lead.etapa === 'descartado') && (
-          <button type="button" class="kt-link" disabled={enviando} onClick={() => enviar('em_atendimento')}>
+          <button type="button" class="kt-link kt-reabrir" disabled={enviando} onClick={() => enviar('em_atendimento')}>
+            <Icone nome="desfazer" tamanho={12} />
             Reabrir
           </button>
         )}
+      </div>
+      {erro && <Aviso tipo="erro">{erro}</Aviso>}
+      <div class="kt-botoes-etapa">
+        <button type="button" class="kt-botao kt-botao-secundario" disabled={enviando || lead.etapa === 'qualificado'} onClick={() => enviar('qualificado')}>
+          <Icone nome="estrela" tamanho={14} />
+          Qualificado
+        </button>
+        <button type="button" class="kt-botao kt-botao-sucesso" aria-expanded={aberto === 'venda'} disabled={enviando} onClick={() => setAberto(aberto === 'venda' ? null : 'venda')}>
+          <Icone nome="sacola" tamanho={14} />
+          Venda
+        </button>
+        <button type="button" class="kt-botao kt-botao-perigo" aria-expanded={aberto === 'descartado'} disabled={enviando} onClick={() => setAberto(aberto === 'descartado' ? null : 'descartado')}>
+          <Icone nome="fechar" tamanho={14} />
+          Descartar
+        </button>
       </div>
       {aberto === 'venda' && (
         <div class="kt-formulario-etapa">
@@ -161,7 +172,7 @@ export function Etapas({ api, lead, mudar }: { api: Api; lead: LeadPainel; mudar
             <span>Valor da venda (R$)</span>
             <input inputMode="decimal" value={valor} placeholder="0,00" onInput={(e) => setValor((e.target as HTMLInputElement).value)} />
           </label>
-          <button type="button" class="kt-botao" disabled={enviando || !valor.trim() || !Number.isFinite(valorNumero) || valorNumero < 0} onClick={() => enviar('venda', { valor: Math.round(valorNumero * 100) / 100 })}>
+          <button type="button" class="kt-botao kt-botao-sucesso" disabled={enviando || !valor.trim() || !Number.isFinite(valorNumero) || valorNumero < 0} onClick={() => enviar('venda', { valor: Math.round(valorNumero * 100) / 100 })}>
             Registrar venda
           </button>
         </div>
@@ -181,6 +192,20 @@ export function Etapas({ api, lead, mudar }: { api: Api; lead: LeadPainel; mudar
           </button>
         </div>
       )}
+      {(lead.eventosMeta ?? []).length > 0 && (
+        <p class="kt-eventos-meta">
+          <Icone nome="raio" tamanho={12} />
+          <span>
+            Meta:{' '}
+            {lead.eventosMeta!.map((e, i) => (
+              <span key={e.gatilho} class={`kt-evento-meta kt-evento-meta-${e.status}`}>
+                {i > 0 && ' · '}
+                {e.evento} {e.status === 'enviado' ? '✓' : e.status === 'pendente' ? '(na fila)' : '(erro)'}
+              </span>
+            ))}
+          </span>
+        </p>
+      )}
     </section>
   );
 }
@@ -189,14 +214,17 @@ export function Entradas({ lead }: { lead: LeadPainel }) {
   if (lead.outrasEntradas.length === 0) return null;
   return (
     <section class="kt-card">
-      <h3>Outras vezes que este contato chegou</h3>
+      <h3 class="kt-titulo-pequeno">
+        <Icone nome="historico" tamanho={14} />
+        Outras vezes que este contato chegou
+      </h3>
       <ul class="kt-entradas">
         {lead.outrasEntradas.map((o) => (
           <li key={o.id}>
-            <span>{new Date(o.recebidoEm).toLocaleDateString('pt-BR')}</span>
-            <span class="kt-muted"> {o.campanha ?? ORIGEM[o.origem as LeadPainel['origem']] ?? o.origem}</span>
-            <span> · {ETAPA[o.etapa]}</span>
-            {o.valorVenda != null && <span> · {dinheiro(o.valorVenda)}</span>}
+            <span class="kt-entrada-data">{new Date(o.recebidoEm).toLocaleDateString('pt-BR')}</span>
+            <span class="kt-entrada-texto">{o.campanha ?? ORIGEM[o.origem as LeadPainel['origem']] ?? o.origem}</span>
+            <span class={`kt-etapa kt-etapa-${o.etapa}`}>{ETAPA[o.etapa]}</span>
+            {o.valorVenda != null && <strong> · {dinheiro(o.valorVenda)}</strong>}
           </li>
         ))}
       </ul>
@@ -207,12 +235,13 @@ export function Entradas({ lead }: { lead: LeadPainel }) {
 export function Historico({ lead }: { lead: LeadPainel }) {
   if (lead.historico.length === 0) return null;
   return (
-    <details class="kt-historico">
-      <summary class="kt-muted">Histórico</summary>
-      <ul>
+    <details class="kt-sanfona kt-historico">
+      <summary>Histórico</summary>
+      <ul class="kt-linha-tempo">
         {lead.historico.map((h, i) => (
           <li key={i}>
-            <span class="kt-muted">{new Date(h.em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span> {h.texto}
+            <span class="kt-muted">{new Date(h.em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+            <span>{h.texto}</span>
           </li>
         ))}
       </ul>

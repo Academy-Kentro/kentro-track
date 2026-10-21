@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
 import { Api, mensagemDeErro } from '../../comum/api';
-import { Aviso, Carregando } from '../../comum/componentes';
+import { Aviso, Carregando, Secao } from '../../comum/componentes';
+import { Icone } from '../../comum/icones';
 import { haQuanto } from '../../comum/formato';
 import { avisar, type Omni } from '../../comum/omni';
 import type { ContaAnuncio, DefinicaoLead, EstadoConexao } from './tipos';
@@ -56,7 +57,7 @@ function FormularioToken({ api, aoConectar, cancelar }: { api: Api; aoConectar: 
           {enviando ? 'Conferindo no Meta…' : 'Conectar'}
         </button>
         {cancelar && (
-          <button type="button" class="kt-botao kt-botao-suave" onClick={cancelar}>
+          <button type="button" class="kt-botao kt-botao-secundario" onClick={cancelar}>
             Cancelar
           </button>
         )}
@@ -112,7 +113,7 @@ function ListaContas({ api, estado, mudar }: { api: Api; estado: Extract<EstadoC
 
   return (
     <div>
-      <h3>Contas de anúncio</h3>
+      <h3 class="kt-subtitulo">Contas de anúncio</h3>
       <p class="kt-muted">Marque as que entram nos painéis. Ao marcar uma conta, os últimos 90 dias são carregados (pode levar alguns minutos).</p>
       {erro && <Aviso tipo="erro">{erro}</Aviso>}
       <ul class="kt-contas-anuncio">
@@ -170,7 +171,7 @@ function ListaContas({ api, estado, mudar }: { api: Api; estado: Extract<EstadoC
           {salvando ? 'Salvando…' : 'Salvar'}
         </button>
         {alterado && (
-          <button type="button" class="kt-botao kt-botao-suave" onClick={() => setRascunho({})}>
+          <button type="button" class="kt-botao kt-botao-secundario" onClick={() => setRascunho({})}>
             Desfazer
           </button>
         )}
@@ -225,9 +226,26 @@ export function ConexaoMeta({ omni, api }: { omni: Omni; api: Api }) {
     setTrocandoToken(false);
   };
 
+  const conectado = estado?.conectado && estado.status === 'ativa' && !trocandoToken;
   return (
-    <section class="kt-card">
-      <h2>Conexão com o Meta</h2>
+    <Secao
+      icone="tomada"
+      titulo="Conexão com o Meta"
+      descricao="Token de usuário do sistema do Business Manager do cliente"
+      acoes={
+        conectado ? (
+          <>
+            <button type="button" class="kt-botao kt-botao-fantasma kt-botao-pequeno" onClick={() => setTrocandoToken(true)}>
+              <Icone nome="chave" tamanho={14} />
+              Trocar token
+            </button>
+            <button type="button" class="kt-botao kt-botao-perigo kt-botao-pequeno" onClick={desconectar}>
+              Desconectar
+            </button>
+          </>
+        ) : undefined
+      }
+    >
       {erro && <Aviso tipo="erro">{erro}</Aviso>}
       {!estado ? (
         !erro && <Carregando />
@@ -244,30 +262,29 @@ export function ConexaoMeta({ omni, api }: { omni: Omni; api: Api }) {
               conecte de novo.
             </Aviso>
           ) : (
-            <p>
-              <span class="kt-selo">Conectado</span> <span class="kt-muted">como {estado.usuarioMeta} · conferido {haQuanto(estado.verificadoEm)}</span>
-            </p>
+            <div class="kt-conexao-status">
+              <span class="kt-conexao-icone">
+                <Icone nome="check" tamanho={16} />
+              </span>
+              <div>
+                <strong>Conectado</strong>
+                <div class="kt-muted">
+                  como {estado.usuarioMeta} · conferido {haQuanto(estado.verificadoEm)}
+                </div>
+              </div>
+            </div>
           )}
           {(estado.avisos ?? []).map((a) => (
             <Aviso key={a} tipo="erro">
               {a}
             </Aviso>
           ))}
-          {trocandoToken || estado.status === 'reconectar' ? (
+          {(trocandoToken || estado.status === 'reconectar') && (
             <FormularioToken api={api} aoConectar={aoConectar} cancelar={estado.status === 'reconectar' ? undefined : () => setTrocandoToken(false)} />
-          ) : (
-            <div class="kt-linha-acoes" style={{ marginBottom: '16px' }}>
-              <button type="button" class="kt-botao kt-botao-suave" onClick={() => setTrocandoToken(true)}>
-                Trocar token
-              </button>
-              <button type="button" class="kt-botao kt-botao-perigo" onClick={desconectar}>
-                Desconectar
-              </button>
-            </div>
           )}
           {estado.status === 'ativa' && <ListaContas api={api} estado={estado} mudar={setEstado} />}
         </>
       )}
-    </section>
+    </Secao>
   );
 }

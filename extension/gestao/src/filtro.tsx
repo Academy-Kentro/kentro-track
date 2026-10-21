@@ -1,5 +1,8 @@
+import { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Api, mensagemDeErro } from '../../comum/api';
+import { haQuanto } from '../../comum/formato';
+import { Icone, NomeIcone } from '../../comum/icones';
 import type { Filtros } from './tipos';
 
 export type Preset = 'ultimos7' | 'ultimos30' | 'ultimos90' | 'mes' | 'mesPassado';
@@ -46,47 +49,57 @@ export function consulta(filtro: Filtro): string {
   return q.toString();
 }
 
+/** Seletor com ícone e chevron próprios: o <select> nativo continua por baixo (teclado, leitor de tela). */
+export function Seletor({ icone, rotulo, valor, mudar, children }: { icone: NomeIcone; rotulo: string; valor: string; mudar: (v: string) => void; children: ComponentChildren }) {
+  return (
+    <label class="kt-select" title={rotulo}>
+      <Icone nome={icone} tamanho={15} />
+      <span class="kt-invisivel">{rotulo}</span>
+      <select value={valor} onChange={(e) => mudar((e.target as HTMLSelectElement).value)}>
+        {children}
+      </select>
+    </label>
+  );
+}
+
 /** Uma linha de filtros acima de todas as abas: período primeiro. */
 export function BarraFiltros({ filtro, opcoes, mudar }: { filtro: Filtro; opcoes: Filtros | null; mudar: (f: Filtro) => void }) {
   const campanhas = (opcoes?.campanhas ?? []).filter((c) => !filtro.contaAnuncio || c.contaAnuncioId === filtro.contaAnuncio);
   return (
     <div class="kt-filtros" role="group" aria-label="Filtros">
-      <label>
-        <span>Período</span>
-        <select value={filtro.preset} onChange={(e) => mudar({ ...filtro, preset: (e.target as HTMLSelectElement).value as Preset })}>
-          {PRESETS.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.rotulo}
+      <Seletor icone="calendario" rotulo="Período" valor={filtro.preset} mudar={(v) => mudar({ ...filtro, preset: v as Preset })}>
+        {PRESETS.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.rotulo}
+          </option>
+        ))}
+      </Seletor>
+      {(opcoes?.contasAnuncio.length ?? 0) > 1 && (
+        <Seletor icone="maleta" rotulo="Conta de anúncio" valor={filtro.contaAnuncio} mudar={(v) => mudar({ ...filtro, contaAnuncio: v, campanha: '' })}>
+          <option value="">Todas as contas</option>
+          {opcoes!.contasAnuncio.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.nome}
             </option>
           ))}
-        </select>
-      </label>
-      {(opcoes?.contasAnuncio.length ?? 0) > 1 && (
-        <label>
-          <span>Conta de anúncio</span>
-          <select value={filtro.contaAnuncio} onChange={(e) => mudar({ ...filtro, contaAnuncio: (e.target as HTMLSelectElement).value, campanha: '' })}>
-            <option value="">Todas</option>
-            {opcoes!.contasAnuncio.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.nome}
-              </option>
-            ))}
-          </select>
-        </label>
+        </Seletor>
       )}
       {campanhas.length > 0 && (
-        <label>
-          <span>Campanha</span>
-          <select value={filtro.campanha} onChange={(e) => mudar({ ...filtro, campanha: (e.target as HTMLSelectElement).value })}>
-            <option value="">Todas</option>
-            {campanhas.map((c) => (
-              <option key={c.idMeta} value={c.idMeta}>
-                {c.nome}
-                {c.ativa ? '' : ' (pausada)'}
-              </option>
-            ))}
-          </select>
-        </label>
+        <Seletor icone="megafone" rotulo="Campanha" valor={filtro.campanha} mudar={(v) => mudar({ ...filtro, campanha: v })}>
+          <option value="">Todas as campanhas</option>
+          {campanhas.map((c) => (
+            <option key={c.idMeta} value={c.idMeta}>
+              {c.nome}
+              {c.ativa ? '' : ' (pausada)'}
+            </option>
+          ))}
+        </Seletor>
+      )}
+      {opcoes?.sincronizadoEm && (
+        <span class="kt-filtros-estado" title={`Última sincronização com o Meta: ${new Date(opcoes.sincronizadoEm).toLocaleString('pt-BR')}`}>
+          <Icone nome="atualizar" tamanho={14} />
+          Meta atualizado {haQuanto(opcoes.sincronizadoEm)}
+        </span>
       )}
     </div>
   );

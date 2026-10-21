@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
 import { Api, mensagemDeErro } from '../../comum/api';
-import { Aviso, Carregando } from '../../comum/componentes';
+import { Aviso, Carregando, Interruptor, Secao } from '../../comum/componentes';
+import { Icone } from '../../comum/icones';
 import { inteiro } from '../../comum/formato';
 import { avisar, type Omni } from '../../comum/omni';
 
@@ -37,7 +38,8 @@ function SeletorEvento({ valor, mudar }: { valor: string | null; mudar: (v: stri
   const personalizado = valor !== null && !PADRAO.includes(valor);
   const [outro, setOutro] = useState(personalizado ? valor! : '');
   return (
-    <span class="kt-linha-acoes">
+    <span class="kt-linha-acoes kt-seletor-evento">
+      <span class="kt-select">
       <select
         value={valor === null ? '' : personalizado ? '__outro' : valor}
         onChange={(e) => {
@@ -53,6 +55,7 @@ function SeletorEvento({ valor, mudar }: { valor: string | null; mudar: (v: stri
         ))}
         <option value="__outro">Outro…</option>
       </select>
+      </span>
       {personalizado && (
         <input
           value={outro}
@@ -88,7 +91,7 @@ function ListaEnvios({ api }: { api: Api }) {
   const c = dados.ultimos30Dias;
   return (
     <div class="kt-envios">
-      <h3>Últimos envios</h3>
+      <h3 class="kt-subtitulo">Últimos envios</h3>
       <p class="kt-muted">
         Últimos 30 dias: {inteiro(c.enviado ?? 0)} recebidos · {inteiro(c.pendente ?? 0)} na fila · {inteiro(c.erro ?? 0)} com erro{' '}
         <button type="button" class="kt-link" onClick={() => void carregar()}>
@@ -120,7 +123,10 @@ function ListaEnvios({ api }: { api: Api }) {
                   </td>
                   <td>{e.lead ?? '—'}</td>
                   <td class="kt-celula-quebra">
-                    <span class={`kt-status kt-status-${e.status === 'enviado' ? 'ativo' : 'outro'}`}>{STATUS[e.status] ?? e.status}</span>
+                    <span class={`kt-selo ${e.status === 'enviado' ? 'kt-selo-ok' : e.status === 'erro' ? 'kt-selo-erro' : 'kt-selo-neutro'}`}>
+                      <span class="kt-ponto" />
+                      {STATUS[e.status] ?? e.status}
+                    </span>
                     {e.erro && <span class="kt-muted"> {e.erro}</span>}
                   </td>
                   <td>
@@ -155,10 +161,9 @@ export function EventosMeta({ omni, api }: { omni: Omni; api: Api }) {
 
   if (!config) {
     return (
-      <section class="kt-card">
-        <h2>Eventos para o Meta</h2>
+      <Secao icone="raio" titulo="Eventos para o Meta">
         {erro ? <Aviso tipo="erro">{erro}</Aviso> : <Carregando />}
-      </section>
+      </Secao>
     );
   }
 
@@ -201,8 +206,17 @@ export function EventosMeta({ omni, api }: { omni: Omni; api: Api }) {
   };
 
   return (
-    <section class="kt-card">
-      <h2>Eventos para o Meta</h2>
+    <Secao
+      icone="raio"
+      titulo="Eventos para o Meta"
+      descricao="API de Conversões: o pixel fica sabendo quem virou lead qualificado e venda"
+      acoes={
+        <span class={`kt-selo ${config.ativo ? 'kt-selo-ok' : 'kt-selo-neutro'}`}>
+          <span class="kt-ponto" />
+          {config.ativo ? (config.codigoTeste ? 'Ligado em modo teste' : 'Ligado') : 'Desligado'}
+        </span>
+      }
+    >
       <p>
         Quando o lead chega, é qualificado ou vira venda, o Kentro Track avisa o pixel pela API de Conversões. O Meta passa a otimizar as campanhas para
         quem compra, não só para quem chama.
@@ -213,12 +227,11 @@ export function EventosMeta({ omni, api }: { omni: Omni; api: Api }) {
       </Aviso>
       {erro && <Aviso tipo="erro">{erro}</Aviso>}
 
-      <label class="kt-alternar">
-        <input type="checkbox" checked={atual.ativo} onChange={(e) => setRascunho({ ...rascunho, ativo: (e.target as HTMLInputElement).checked })} /> Enviar eventos
-        para o pixel
-      </label>
+      <Interruptor ligado={atual.ativo} mudar={(v) => setRascunho({ ...rascunho, ativo: v })}>
+        Enviar eventos para o pixel
+      </Interruptor>
 
-      <h3>Pixel</h3>
+      <h3 class="kt-subtitulo">Pixel</h3>
       <div class="kt-linha-acoes">
         <label class="kt-campo">
           <span>Id do pixel (conjunto de dados)</span>
@@ -228,7 +241,7 @@ export function EventosMeta({ omni, api }: { omni: Omni; api: Api }) {
             onInput={(e) => setRascunho({ ...rascunho, datasetId: (e.target as HTMLInputElement).value.replace(/\D/g, '') || null, datasetNome: null })}
           />
         </label>
-        <button type="button" class="kt-botao kt-botao-suave" onClick={buscarPixels}>
+        <button type="button" class="kt-botao kt-botao-secundario" onClick={buscarPixels}>
           Buscar pixels das contas de anúncio
         </button>
       </div>
@@ -253,7 +266,7 @@ export function EventosMeta({ omni, api }: { omni: Omni; api: Api }) {
           </ul>
         ))}
 
-      <details class="kt-evento">
+      <details class="kt-sanfona">
         <summary>Token próprio do pixel e WhatsApp Business (opcional)</summary>
         <p class="kt-muted">
           Sem token próprio, o envio usa o token da conexão (ele precisa de acesso ao pixel). Para usar o token gerado no Gerenciador de Eventos (o mesmo
@@ -261,7 +274,10 @@ export function EventosMeta({ omni, api }: { omni: Omni; api: Api }) {
         </p>
         {config.tokenProprio && rascunho.token === undefined ? (
           <p>
-            <span class="kt-selo">Token próprio configurado</span>{' '}
+            <span class="kt-selo kt-selo-ok">
+              <Icone nome="check" tamanho={12} />
+              Token próprio configurado
+            </span>{' '}
             <button type="button" class="kt-link" onClick={() => setRascunho({ ...rascunho, token: null })}>
               Remover
             </button>
@@ -279,7 +295,7 @@ export function EventosMeta({ omni, api }: { omni: Omni; api: Api }) {
         <p class="kt-muted">Com o WABA, quando a conversa traz o identificador do clique (ctwa_clid), o evento vai no modo de mensageria comercial, que o Meta atribui melhor.</p>
       </details>
 
-      <h3>O que cada etapa envia</h3>
+      <h3 class="kt-subtitulo">O que cada etapa envia</h3>
       <table class="kt-tabela kt-mapeamento">
         <tbody>
           {GATILHOS.map((g) => (
@@ -296,37 +312,33 @@ export function EventosMeta({ omni, api }: { omni: Omni; api: Api }) {
         </tbody>
       </table>
 
-      <h3>Testar</h3>
+      <h3 class="kt-subtitulo">Testar</h3>
       <div class="kt-linha-acoes">
         <label class="kt-campo">
           <span>Código de teste (Gerenciador de Eventos › Eventos de teste)</span>
           <input value={teste} placeholder={config.codigoTeste ?? 'TEST12345'} onInput={(e) => setTeste((e.target as HTMLInputElement).value)} />
         </label>
-        <button type="button" class="kt-botao kt-botao-suave" disabled={!config.datasetId} onClick={testar}>
+        <button type="button" class="kt-botao kt-botao-secundario" disabled={!config.datasetId} onClick={testar}>
+          <Icone nome="teste" tamanho={15} />
           Enviar evento de teste
         </button>
       </div>
-      <label class="kt-alternar">
-        <input
-          type="checkbox"
-          checked={!!atual.codigoTeste}
-          onChange={(e) => setRascunho({ ...rascunho, codigoTeste: (e.target as HTMLInputElement).checked ? teste.trim() || config.codigoTeste || null : null })}
-        />{' '}
+      <Interruptor ligado={!!atual.codigoTeste} mudar={(v) => setRascunho({ ...rascunho, codigoTeste: v ? teste.trim() || config.codigoTeste || null : null })}>
         Modo teste: todos os eventos vão com o código acima e não contam nas campanhas
-      </label>
+      </Interruptor>
 
       <div class="kt-linha-acoes" style={{ margin: '12px 0 16px' }}>
         <button type="button" class="kt-botao" disabled={!alterado || salvando} onClick={salvar}>
           {salvando ? 'Salvando…' : 'Salvar'}
         </button>
         {alterado && (
-          <button type="button" class="kt-botao kt-botao-suave" onClick={() => setRascunho({})}>
+          <button type="button" class="kt-botao kt-botao-secundario" onClick={() => setRascunho({})}>
             Desfazer
           </button>
         )}
       </div>
 
       <ListaEnvios api={api} />
-    </section>
+    </Secao>
   );
 }

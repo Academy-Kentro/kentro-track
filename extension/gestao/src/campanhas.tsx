@@ -1,5 +1,6 @@
 import { useState } from 'preact/hooks';
-import { Aviso } from '../../comum/componentes';
+import { Aviso, Carregando, Vazio } from '../../comum/componentes';
+import { Icone } from '../../comum/icones';
 import { dinheiro, inteiro, percentual, vezes } from '../../comum/formato';
 import type { Carga } from './filtro';
 import { SituacaoCarga } from './visao-geral';
@@ -61,14 +62,19 @@ function Linha({ no, nivel, moeda, aberto, alternar }: { no: NoCampanha; nivel: 
         <div class="kt-nome-celula" style={{ paddingLeft: `${nivel * 18}px` }}>
           {alternar ? (
             <button type="button" class="kt-abrir" aria-expanded={aberto} aria-label={aberto ? 'Recolher' : 'Expandir'} onClick={alternar}>
-              {aberto ? '▾' : '▸'}
+              <Icone nome="direita" tamanho={14} />
             </button>
           ) : (
             <span class="kt-abrir" />
           )}
-          <span>
+          <span class="kt-nome-bloco">
             <span class="kt-nome">{no.nome}</span>
-            {no.status && <span class={`kt-status kt-status-${no.status === 'ACTIVE' ? 'ativo' : 'outro'}`}>{STATUS[no.status] ?? no.status}</span>}
+            {no.status && (
+              <span class={`kt-status kt-status-${no.status === 'ACTIVE' ? 'ativo' : 'outro'}`}>
+                <span class="kt-ponto" />
+                {STATUS[no.status] ?? no.status}
+              </span>
+            )}
           </span>
         </div>
       </td>
@@ -85,7 +91,7 @@ export function Campanhas({ carga }: { carga: Carga<Dados> }) {
   const [ordem, setOrdem] = useState<{ chave: keyof Metricas; crescente: boolean }>({ chave: 'investimento', crescente: false });
   const [abertos, setAbertos] = useState<Set<string>>(new Set());
   const { dados, erro, carregando } = carga;
-  if (!dados) return erro ? <Aviso tipo="erro">{erro}</Aviso> : <p class="kt-muted">Carregando…</p>;
+  if (!dados) return erro ? <Aviso tipo="erro">{erro}</Aviso> : <Carregando />;
 
   const alternar = (id: string) =>
     setAbertos((a) => {
@@ -101,9 +107,13 @@ export function Campanhas({ carga }: { carga: Carga<Dados> }) {
       {erro && <Aviso tipo="erro">{erro}</Aviso>}
       <SituacaoCarga cargaPendente={dados.cargaPendente} sincronizadoEm={dados.sincronizadoEm} />
       {dados.campanhas.length === 0 ? (
-        <p class="kt-muted">Nenhuma campanha com entrega no período.</p>
+        <section class="kt-card">
+          <Vazio icone="megafone" titulo="Nenhuma campanha com entrega no período">
+            Troque o período ou a conta de anúncio no filtro.
+          </Vazio>
+        </section>
       ) : (
-        <div class="kt-tabela-rolagem">
+        <div class="kt-tabela-rolagem kt-tabela-card">
           <table class="kt-tabela kt-tabela-campanhas">
             <thead>
               <tr>

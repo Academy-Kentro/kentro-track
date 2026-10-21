@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
 import { Api, mensagemDeErro } from '../../comum/api';
 import { Aviso, BotaoCopiar, CaixaChave } from '../../comum/componentes';
+import { Icone } from '../../comum/icones';
 import type { Omni } from '../../comum/omni';
 import type { ChavesNovas } from './tipos';
 
@@ -13,8 +14,10 @@ function urlManifest(apiUrl: string, extensao: 'gestao' | 'atendimento'): string
 
 export function ChavesCriadas({ chaves, apiUrl }: { chaves: ChavesNovas; apiUrl: string }) {
   return (
-    <section class="kt-card">
-      <h2>Conta criada. Agora cole as chaves.</h2>
+    <section class="kt-card kt-chaves-criadas">
+      <h2>
+        <Icone nome="check" tamanho={18} /> Conta criada. Agora cole as chaves.
+      </h2>
       <Aviso>
         As chaves aparecem <strong>só agora</strong>. Elas ficam guardadas neste navegador até você colar a chave de admin e recarregar a página.
       </Aviso>
@@ -80,11 +83,25 @@ export function PrimeiroUso({ omni, api, apiUrl, nomeSugerido }: { omni: Omni; a
   };
 
   return (
-    <section class="kt-card">
-      <h2>Bem-vindo ao Kentro Track</h2>
-      <p>
+    <section class="kt-card kt-boas-vindas">
+      <span class="kt-marca kt-marca-grande" aria-hidden="true">
+        <Icone nome="grafico" tamanho={28} />
+      </span>
+      <h1>Bem-vindo ao Kentro Track</h1>
+      <p class="kt-boas-vindas-texto">
         Veja o resultado das suas campanhas do Meta até a venda: investimento, leads, custo por lead e o que virou venda no atendimento.
       </p>
+      <ul class="kt-beneficios">
+        <li>
+          <Icone nome="megafone" tamanho={16} /> Campanhas, criativos e custo por lead, atualizados de hora em hora
+        </li>
+        <li>
+          <Icone nome="mensagem" tamanho={16} /> O atendente vê de qual anúncio cada lead veio
+        </li>
+        <li>
+          <Icone nome="raio" tamanho={16} /> Vendas voltam para o pixel e o Meta otimiza para quem compra
+        </li>
+      </ul>
       {erro && <Aviso tipo="erro">{erro}</Aviso>}
       <label class="kt-campo">
         <span>Nome da empresa</span>

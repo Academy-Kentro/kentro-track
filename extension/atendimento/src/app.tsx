@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { Api, criarApi, lerConfigInstalacao, mensagemDeErro } from '../../comum/api';
-import { Aviso, BotaoCopiar, Carregando } from '../../comum/componentes';
+import { Aviso, BotaoCopiar, Carregando, Vazio } from '../../comum/componentes';
+import { Icone } from '../../comum/icones';
 import type { ChatOmni, CtxOmni, Omni } from '../../comum/omni';
 import { buscarAnuncio, Busca, diagnostico, resumirAnuncio } from './anuncio';
 import { Entradas, Etapas, Historico, LeadPainel, Origem } from './lead';
@@ -53,18 +54,23 @@ type EstadoChat =
 function AnuncioLocal({ busca }: { busca: Busca }) {
   const anuncio = busca.mensagem ? resumirAnuncio(busca.mensagem.ad) : null;
   return (
-    <div class="kt-card">
+    <div class="kt-card kt-origem">
       {anuncio ? (
         <>
-          <p>
-            <span class="kt-selo">Veio de um anúncio</span>
-          </p>
+          <div class="kt-origem-topo">
+            <span class="kt-selo">
+              <Icone nome="megafone" tamanho={12} />
+              Veio de um anúncio
+            </span>
+          </div>
           {anuncio.titulo && <h3>{anuncio.titulo}</h3>}
-          {anuncio.texto && <p>{anuncio.texto}</p>}
+          {anuncio.texto && <p class="kt-anuncio-texto">{anuncio.texto}</p>}
           {anuncio.url && <p class="kt-muted" style={{ wordBreak: 'break-all' }}>{anuncio.url}</p>}
         </>
       ) : (
-        <p class="kt-muted">Nenhum anúncio identificado nas {busca.analisadas} mensagens mais recentes deste atendimento.</p>
+        <Vazio icone="mensagem" titulo="Sem anúncio identificado">
+          Nenhum anúncio identificado nas {busca.analisadas} mensagens mais recentes deste atendimento.
+        </Vazio>
       )}
     </div>
   );
@@ -73,8 +79,8 @@ function AnuncioLocal({ busca }: { busca: Busca }) {
 function Diagnostico({ chat, busca }: { chat: ChatOmni; busca: Busca }) {
   const texto = diagnostico(chat, busca);
   return (
-    <details class="kt-diagnostico">
-      <summary class="kt-muted">Diagnóstico do anúncio</summary>
+    <details class="kt-sanfona kt-diagnostico">
+      <summary>Diagnóstico do anúncio</summary>
       <p class="kt-muted">Só os dados do anúncio, sem mensagens nem telefone do cliente.</p>
       <pre class="kt-json">{texto}</pre>
       <div class="kt-linha-acoes" style={{ marginTop: '8px' }}>
@@ -150,7 +156,11 @@ export function App({ omni, ctx }: { omni: Omni; ctx: CtxOmni }) {
   return (
     <main class="kt-painel">
       <SituacaoConta estado={conta} />
-      {chat.tipo === 'sem_chat' && <p class="kt-muted">Abra um atendimento para ver de onde o lead veio.</p>}
+      {chat.tipo === 'sem_chat' && (
+        <Vazio icone="mensagem" titulo="Origem do lead">
+          Abra um atendimento para ver de onde o lead veio.
+        </Vazio>
+      )}
       {chat.tipo === 'buscando' && <Carregando texto="Procurando a origem do lead…" />}
       {chat.tipo === 'erro' && (
         <>

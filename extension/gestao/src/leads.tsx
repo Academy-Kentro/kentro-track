@@ -1,7 +1,8 @@
-import { Aviso } from '../../comum/componentes';
+import { Avatar, Aviso, Carregando, Vazio } from '../../comum/componentes';
+import { Icone } from '../../comum/icones';
 import { dinheiro, inteiro, percentual } from '../../comum/formato';
 import { avisar, type Omni } from '../../comum/omni';
-import type { Carga } from './filtro';
+import { Seletor, type Carga } from './filtro';
 
 export type Etapa = 'novo' | 'em_atendimento' | 'qualificado' | 'venda' | 'descartado';
 
@@ -73,38 +74,37 @@ export function Leads({ omni, carga, filtro, mudar }: { omni: Omni; carga: Carga
 
   return (
     <div class={carregando ? 'kt-recarregando' : ''}>
-      <div class="kt-filtros">
-        <label>
-          <span>Origem</span>
-          <select value={filtro.origem} onChange={(e) => mudar({ ...filtro, origem: (e.target as HTMLSelectElement).value as FiltroLeads['origem'], pagina: 1 })}>
-            {ORIGENS.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.rotulo}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-      {dados && (
-        <div class="kt-chips" role="group" aria-label="Etapa">
-          <button type="button" class="kt-chip" aria-pressed={filtro.etapa === ''} onClick={() => mudar({ ...filtro, etapa: '', pagina: 1 })}>
-            Todas ({inteiro(Object.values(dados.porEtapa).reduce((a, b) => a + (b ?? 0), 0))})
-          </button>
-          {ETAPAS.map((e) => (
-            <button key={e.id} type="button" class="kt-chip" aria-pressed={filtro.etapa === e.id} onClick={() => mudar({ ...filtro, etapa: e.id, pagina: 1 })}>
-              {e.rotulo} ({inteiro(dados.porEtapa[e.id] ?? 0)})
+      <div class="kt-barra-leads">
+        {dados && (
+          <div class="kt-chips" role="group" aria-label="Etapa">
+            <button type="button" class="kt-chip" aria-pressed={filtro.etapa === ''} onClick={() => mudar({ ...filtro, etapa: '', pagina: 1 })}>
+              Todas <span class="kt-chip-n">({inteiro(Object.values(dados.porEtapa).reduce((a, b) => a + (b ?? 0), 0))})</span>
             </button>
+            {ETAPAS.map((e) => (
+              <button key={e.id} type="button" class={`kt-chip kt-chip-${e.id}`} aria-pressed={filtro.etapa === e.id} onClick={() => mudar({ ...filtro, etapa: e.id, pagina: 1 })}>
+                {e.rotulo} <span class="kt-chip-n">({inteiro(dados.porEtapa[e.id] ?? 0)})</span>
+              </button>
+            ))}
+          </div>
+        )}
+        <Seletor icone="funil" rotulo="Origem" valor={filtro.origem} mudar={(v) => mudar({ ...filtro, origem: v as FiltroLeads['origem'], pagina: 1 })}>
+          {ORIGENS.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.rotulo}
+            </option>
           ))}
-        </div>
-      )}
+        </Seletor>
+      </div>
       {erro && <Aviso tipo="erro">{erro}</Aviso>}
       {!dados ? (
-        !erro && <p class="kt-muted">Carregando…</p>
+        !erro && <Carregando />
       ) : dados.itens.length === 0 ? (
-        <p class="kt-muted">Nenhum lead com esses filtros no período.</p>
+        <section class="kt-card">
+          <Vazio icone="lista" titulo="Nenhum lead com esses filtros no período" />
+        </section>
       ) : (
         <>
-          <div class="kt-tabela-rolagem">
+          <div class="kt-tabela-rolagem kt-tabela-card">
             <table class="kt-tabela">
               <thead>
                 <tr>
@@ -122,8 +122,13 @@ export function Leads({ omni, carga, filtro, mudar }: { omni: Omni; carga: Carga
                   <tr key={l.id}>
                     <td>{new Date(l.recebidoEm).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
                     <td>
-                      {l.nome ?? 'Sem nome'}
-                      {l.telefone && <span class="kt-muted"> · {l.telefone}</span>}
+                      <span class="kt-pessoa">
+                        <Avatar nome={l.nome} />
+                        <span>
+                          {l.nome ?? 'Sem nome'}
+                          {l.telefone && <span class="kt-muted"> · {l.telefone}</span>}
+                        </span>
+                      </span>
                     </td>
                     <td class="kt-celula-quebra">
                       {l.campanha ?? ORIGENS.find((o) => o.id === l.origem)?.rotulo ?? l.origem}
@@ -131,11 +136,14 @@ export function Leads({ omni, carga, filtro, mudar }: { omni: Omni; carga: Carga
                       {l.vinculoAproximado && <span class="kt-muted" title="Anúncio identificado pelo texto ou pelo link do post"> *</span>}
                     </td>
                     <td>{l.atendente ?? '—'}</td>
-                    <td>{ETAPA_ROTULO[l.etapa]}</td>
+                    <td>
+                      <span class={`kt-etapa kt-etapa-${l.etapa}`}>{ETAPA_ROTULO[l.etapa]}</span>
+                    </td>
                     <td class="kt-num">{l.valorVenda == null ? '—' : dinheiro(l.valorVenda)}</td>
                     <td>
                       {l.chatId && (
-                        <button type="button" class="kt-link" onClick={() => abrirConversa(l.chatId!)}>
+                        <button type="button" class="kt-botao kt-botao-fantasma kt-botao-pequeno" onClick={() => abrirConversa(l.chatId!)}>
+                          <Icone nome="externo" tamanho={13} />
                           Abrir conversa
                         </button>
                       )}
@@ -146,12 +154,12 @@ export function Leads({ omni, carga, filtro, mudar }: { omni: Omni; carga: Carga
             </table>
           </div>
           <p class="kt-muted">* anúncio identificado pelo texto ou pelo link do post (aproximado). O telefone aparece parcial de propósito.</p>
-          <div class="kt-linha-acoes">
-            <button type="button" class="kt-botao kt-botao-suave" disabled={dados.pagina <= 1} onClick={() => mudar({ ...filtro, pagina: dados.pagina - 1 })}>
+          <div class="kt-paginacao">
+            <button type="button" class="kt-botao kt-botao-fantasma kt-botao-pequeno" disabled={dados.pagina <= 1} onClick={() => mudar({ ...filtro, pagina: dados.pagina - 1 })}>
               Anteriores
             </button>
             <span class="kt-muted">Página {dados.pagina}</span>
-            <button type="button" class="kt-botao kt-botao-suave" disabled={!dados.temMais} onClick={() => mudar({ ...filtro, pagina: dados.pagina + 1 })}>
+            <button type="button" class="kt-botao kt-botao-fantasma kt-botao-pequeno" disabled={!dados.temMais} onClick={() => mudar({ ...filtro, pagina: dados.pagina + 1 })}>
               Próximos
             </button>
           </div>
@@ -163,12 +171,19 @@ export function Leads({ omni, carga, filtro, mudar }: { omni: Omni; carga: Carga
 
 export function Equipe({ carga }: { carga: Carga<DadosEquipe> }) {
   const { dados, erro, carregando } = carga;
-  if (!dados) return erro ? <Aviso tipo="erro">{erro}</Aviso> : <p class="kt-muted">Carregando…</p>;
-  if (dados.atendentes.length === 0) return <p class="kt-muted">Nenhum lead no atendimento neste período.</p>;
+  if (!dados) return erro ? <Aviso tipo="erro">{erro}</Aviso> : <Carregando />;
+  if (dados.atendentes.length === 0) {
+    return (
+      <section class="kt-card">
+        <Vazio icone="usuarios" titulo="Nenhum lead no atendimento neste período" />
+      </section>
+    );
+  }
+  const melhorTaxa = Math.max(1, ...dados.atendentes.map((a) => a.taxaVenda ?? 0));
   return (
     <div class={carregando ? 'kt-recarregando' : ''}>
       {erro && <Aviso tipo="erro">{erro}</Aviso>}
-      <div class="kt-tabela-rolagem">
+      <div class="kt-tabela-rolagem kt-tabela-card">
         <table class="kt-tabela">
           <thead>
             <tr>
@@ -185,12 +200,24 @@ export function Equipe({ carga }: { carga: Carga<DadosEquipe> }) {
           <tbody>
             {dados.atendentes.map((a) => (
               <tr key={a.id ?? 'sem'}>
-                <td>{a.nome}</td>
+                <td>
+                  <span class="kt-pessoa">
+                    <Avatar nome={a.id ? a.nome : null} />
+                    {a.nome}
+                  </span>
+                </td>
                 <td class="kt-num">{inteiro(a.entradas)}</td>
                 <td class="kt-num">{inteiro(a.qualificados)}</td>
                 <td class="kt-num">{inteiro(a.vendas)}</td>
                 <td class="kt-num">{inteiro(a.descartados)}</td>
-                <td class="kt-num">{percentual(a.taxaVenda, 1)}</td>
+                <td class="kt-num">
+                  <span class="kt-taxa">
+                    <span class="kt-taxa-trilho" aria-hidden="true">
+                      <span class="kt-taxa-barra" style={{ width: `${((a.taxaVenda ?? 0) / melhorTaxa) * 100}%` }} />
+                    </span>
+                    {percentual(a.taxaVenda, 1)}
+                  </span>
+                </td>
                 <td class="kt-num">{dinheiro(a.receita, dados.moeda)}</td>
                 <td class="kt-num">{a.minutosAteAtender == null ? '—' : a.minutosAteAtender < 60 ? `${a.minutosAteAtender} min` : `${(a.minutosAteAtender / 60).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} h`}</td>
               </tr>

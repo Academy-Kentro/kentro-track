@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { Api, criarApi, ErroTrack, lerConfigInstalacao, mensagemDeErro } from '../../comum/api';
-import { Aviso, Carregando } from '../../comum/componentes';
+import { Aviso, Carregando, Vazio } from '../../comum/componentes';
+import { Icone, NomeIcone } from '../../comum/icones';
 import type { CtxOmni, Omni } from '../../comum/omni';
 import { Campanhas } from './campanhas';
 import { Configuracoes } from './configuracoes';
@@ -13,16 +14,16 @@ import { VisaoGeral } from './visao-geral';
 
 type Estado = { tipo: 'carregando' } | { tipo: 'sem_chave' } | { tipo: 'erro'; mensagem: string; chaveInvalida: boolean } | { tipo: 'ok'; conta: Conta };
 
-const ABAS = [
-  { id: 'visao', titulo: 'Visão geral' },
-  { id: 'campanhas', titulo: 'Campanhas' },
-  { id: 'criativos', titulo: 'Criativos' },
-  { id: 'leads', titulo: 'Leads' },
-  { id: 'equipe', titulo: 'Equipe' },
-  { id: 'config', titulo: 'Configurações', soAdmin: true },
+const ABAS: readonly { id: string; titulo: string; icone: NomeIcone; soAdmin?: true }[] = [
+  { id: 'visao', titulo: 'Visão geral', icone: 'grafico' },
+  { id: 'campanhas', titulo: 'Campanhas', icone: 'megafone' },
+  { id: 'criativos', titulo: 'Criativos', icone: 'imagem' },
+  { id: 'leads', titulo: 'Leads', icone: 'lista' },
+  { id: 'equipe', titulo: 'Equipe', icone: 'usuarios' },
+  { id: 'config', titulo: 'Configurações', icone: 'ajustes', soAdmin: true },
 ] as const;
 
-type IdAba = (typeof ABAS)[number]['id'];
+type IdAba = 'visao' | 'campanhas' | 'criativos' | 'leads' | 'equipe' | 'config';
 
 const PAPEL: Record<Conta['papel'], string> = { admin: 'Administrador', gestor: 'Gestor', atendimento: 'Atendimento' };
 const FILTRO_SALVO = 'filtro';
@@ -71,16 +72,22 @@ function Paineis({ omni, api, conta, aba, irPara }: { omni: Omni; api: Api; cont
 
   if (!opcoes.dados) return opcoes.erro ? <Aviso tipo="erro">{opcoes.erro}</Aviso> : <Carregando />;
   if (!pronto) {
-    return conta.papel === 'admin' ? (
-      <Aviso>
-        Nenhuma conta de anúncio selecionada.{' '}
-        <button type="button" class="kt-link" onClick={() => irPara('config')}>
-          Conecte o Meta e marque as contas em Configurações
-        </button>
-        .
-      </Aviso>
-    ) : (
-      <Aviso>Nenhuma conta de anúncio conectada ainda. Peça ao administrador para conectar o Meta no Kentro Track.</Aviso>
+    return (
+      <section class="kt-card">
+        <Vazio icone="tomada" titulo="Nenhuma conta de anúncio selecionada">
+          {conta.papel === 'admin' ? (
+            <>
+              <p>Conecte o Business Manager do cliente e marque as contas de anúncio que entram nos painéis.</p>
+              <button type="button" class="kt-botao" onClick={() => irPara('config')}>
+                <Icone nome="tomada" tamanho={15} />
+                Conecte o Meta e marque as contas em Configurações
+              </button>
+            </>
+          ) : (
+            <p>Nenhuma conta de anúncio conectada ainda. Peça ao administrador para conectar o Meta no Kentro Track.</p>
+          )}
+        </Vazio>
+      </section>
     );
   }
 
@@ -121,7 +128,13 @@ export function App({ omni, ctx }: { omni: Omni; ctx: CtxOmni }) {
     );
   }, [api, apiUrl, chave, omni]);
 
-  if (estado.tipo === 'carregando') return <main class="kt-gestao"><Carregando /></main>;
+  if (estado.tipo === 'carregando') {
+    return (
+      <main class="kt-gestao">
+        <Carregando />
+      </main>
+    );
+  }
   if (estado.tipo === 'sem_chave') {
     return (
       <main class="kt-gestao">
@@ -149,28 +162,50 @@ export function App({ omni, ctx }: { omni: Omni; ctx: CtxOmni }) {
     );
   }
 
-  const abas = ABAS.filter((a) => !('soAdmin' in a) || conta.papel === 'admin');
+  const abas = ABAS.filter((a) => !a.soAdmin || conta.papel === 'admin');
   const atual = abas.find((a) => a.id === aba) ?? abas[0];
   return (
     <main class="kt-gestao">
       <header class="kt-topo">
-        <div>
+        <span class="kt-marca" aria-hidden="true">
+          <Icone nome="grafico" tamanho={20} />
+        </span>
+        <div class="kt-topo-titulos">
           <h1>Kentro Track</h1>
           <p class="kt-muted">
             {conta.nome ?? 'Conta sem nome'} · {PAPEL[conta.papel]}
           </p>
         </div>
-        {conta.status === 'pendente_conexao' && <span class="kt-selo">Meta não conectado</span>}
-        {conta.status === 'reconectar' && <span class="kt-selo kt-selo-erro">Reconectar o Meta</span>}
+        <div class="kt-topo-estado">
+          {conta.status === 'ativa' && (
+            <span class="kt-selo kt-selo-ok">
+              <span class="kt-ponto" />
+              Meta conectado
+            </span>
+          )}
+          {conta.status === 'pendente_conexao' && (
+            <span class="kt-selo kt-selo-neutro">
+              <span class="kt-ponto" />
+              Meta não conectado
+            </span>
+          )}
+          {conta.status === 'reconectar' && (
+            <span class="kt-selo kt-selo-erro">
+              <span class="kt-ponto" />
+              Reconectar o Meta
+            </span>
+          )}
+        </div>
       </header>
       <nav class="kt-abas" role="tablist">
         {abas.map((a) => (
-          <button key={a.id} type="button" role="tab" aria-selected={a.id === atual.id} class="kt-aba" onClick={() => setAba(a.id)}>
+          <button key={a.id} type="button" role="tab" aria-selected={a.id === atual.id} class="kt-aba" onClick={() => setAba(a.id as IdAba)}>
+            <Icone nome={a.icone} tamanho={16} />
             {a.titulo}
           </button>
         ))}
       </nav>
-      {atual.id === 'config' ? <Configuracoes omni={omni} api={api} /> : <Paineis omni={omni} api={api} conta={conta} aba={atual.id} irPara={setAba} />}
+      {atual.id === 'config' ? <Configuracoes omni={omni} api={api} /> : <Paineis omni={omni} api={api} conta={conta} aba={atual.id as IdAba} irPara={setAba} />}
     </main>
   );
 }

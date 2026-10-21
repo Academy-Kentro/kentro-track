@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { diaCurto, diaLongo } from '../../comum/formato';
+import { Icone } from '../../comum/icones';
 
 export interface Ponto {
   dia: string;
@@ -8,6 +9,8 @@ export interface Ponto {
 
 interface Props {
   titulo: string;
+  /** Total do período, ao lado do título. */
+  resumo?: string;
   pontos: Ponto[];
   formatar: (v: number) => string;
   formatarEixo: (v: number) => string;
@@ -34,7 +37,7 @@ function caminhoColuna(x: number, y: number, largura: number, altura: number): s
 }
 
 /** Gráfico de colunas diário de uma série. Uma série só: o título diz o que é, sem legenda. */
-export function GraficoColunas({ titulo, pontos, formatar, formatarEixo }: Props) {
+export function GraficoColunas({ titulo, resumo, pontos, formatar, formatarEixo }: Props) {
   const caixa = useRef<HTMLDivElement>(null);
   const [largura, setLargura] = useState(600);
   const [ativo, setAtivo] = useState<number | null>(null);
@@ -63,8 +66,12 @@ export function GraficoColunas({ titulo, pontos, formatar, formatarEixo }: Props
   return (
     <figure class="kt-grafico">
       <figcaption class="kt-grafico-topo">
-        <h3>{titulo}</h3>
-        <button type="button" class="kt-link" onClick={() => setTabela(!tabela)}>
+        <div>
+          <h3>{titulo}</h3>
+          {resumo && <p class="kt-grafico-resumo">{resumo}</p>}
+        </div>
+        <button type="button" class="kt-botao kt-botao-fantasma kt-botao-pequeno" onClick={() => setTabela(!tabela)}>
+          <Icone nome={tabela ? 'grafico' : 'lista'} tamanho={14} />
           {tabela ? 'Ver gráfico' : 'Ver tabela'}
         </button>
       </figcaption>
@@ -147,5 +154,21 @@ export function GraficoColunas({ titulo, pontos, formatar, formatarEixo }: Props
         </div>
       )}
     </figure>
+  );
+}
+
+/** Tendência sem eixo, no cartão do indicador: linha de 2 px e uma lavagem de 10% da mesma cor. */
+export function Sparkline({ pontos, rotulo }: { pontos: number[]; rotulo: string }) {
+  const L = 120;
+  const A = 32;
+  const max = Math.max(...pontos, 1);
+  const passo = pontos.length > 1 ? L / (pontos.length - 1) : L;
+  const coords = pontos.map((v, i) => [i * passo, A - 2 - (v / max) * (A - 4)] as const);
+  const linha = coords.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`).join('');
+  return (
+    <svg class="kt-sparkline" viewBox={`0 0 ${L} ${A}`} preserveAspectRatio="none" role="img" aria-label={rotulo}>
+      <path class="kt-sparkline-area" d={`${linha}L${L},${A}L0,${A}Z`} />
+      <path class="kt-sparkline-linha" d={linha} vector-effect="non-scaling-stroke" />
+    </svg>
   );
 }

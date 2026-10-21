@@ -1,6 +1,7 @@
 import { useState } from 'preact/hooks';
 import { Api, mensagemDeErro } from '../../comum/api';
-import { Aviso, CaixaChave } from '../../comum/componentes';
+import { Aviso, CaixaChave, Secao } from '../../comum/componentes';
+import { Icone } from '../../comum/icones';
 import type { Omni } from '../../comum/omni';
 import { ConexaoMeta } from './conexao-meta';
 import { EventosMeta } from './eventos-meta';
@@ -40,16 +41,19 @@ function Chaves({ omni, api }: { omni: Omni; api: Api }) {
   };
 
   return (
-    <section class="kt-card">
-      <h2>Chaves</h2>
-      <p class="kt-muted">Cada extensão usa a sua chave. Gere uma nova se alguma vazou ou se alguém com acesso saiu da empresa.</p>
+    <Secao icone="chave" titulo="Chaves" descricao="Cada extensão usa a sua. Gere uma nova se alguma vazou ou se alguém com acesso saiu da empresa.">
       {erro && <Aviso tipo="erro">{erro}</Aviso>}
       {CHAVES.map(({ tipo, rotulo, ondeColar }) => (
-        <div key={tipo} style={{ marginBottom: '12px' }}>
-          <div class="kt-linha-acoes">
-            <strong style={{ minWidth: '170px' }}>{rotulo}</strong>
-            <span class="kt-muted">{ondeColar}</span>
-            <button type="button" class="kt-botao kt-botao-perigo" disabled={girando !== null} onClick={() => rotacionar(tipo, rotulo, ondeColar)}>
+        <div key={tipo} class="kt-chave-linha">
+          <div class="kt-chave-linha-topo">
+            <span class="kt-chave-linha-icone">
+              <Icone nome="chave" tamanho={15} />
+            </span>
+            <div class="kt-chave-linha-texto">
+              <strong>{rotulo}</strong>
+              <span class="kt-muted">{ondeColar}</span>
+            </div>
+            <button type="button" class="kt-botao kt-botao-perigo kt-botao-pequeno" disabled={girando !== null} onClick={() => rotacionar(tipo, rotulo, ondeColar)}>
               {girando === tipo ? 'Gerando…' : 'Gerar nova'}
             </button>
           </div>
@@ -60,7 +64,7 @@ function Chaves({ omni, api }: { omni: Omni; api: Api }) {
           )}
         </div>
       ))}
-    </section>
+    </Secao>
   );
 }
 

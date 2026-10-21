@@ -505,6 +505,9 @@ No banco ficam **só hashes** das chaves e do token do webhook; o token do Meta 
 - Extensões 0.4.0: Configurações › Eventos para o Meta; linha "Meta: Lead ✓ · …" no painel do atendente.
 - ⚠ Migração do n8n (Grupo PK, Simeão/GLPGás): os fluxos não estão liberados para o MCP do n8n (V7), então a comparação é pelo Gerenciador de Eventos (mesmos nomes de evento? mesmo pixel?). Ligar aqui e desligar o fluxo do n8n no mesmo dia.
 
+**Visual das extensões (0.5.0, 23/10/2026):** sistema próprio sobre os tokens `--ext-*` da Kentro (cor da marca e modo escuro continuam vindo da instância; tons por `color-mix`): ícones de traço próprios (`extension/comum/icones.tsx`), componentes `Secao`, `Vazio`, `Avatar`, `Interruptor`, `Seletor`; abas em pílula com ícone, barra de filtros com seletores próprios e o horário da última sincronização, cartões de indicador com ícone, variação em pílula com seta e mini tendência nos destaques, gráficos e funil em cartões, tabelas em cartão com cabeçalho fixo, etapas coloridas com texto, criativos com posição no ranking. Conferido por prévia local (Playwright + Chrome, `omni` simulado) em claro e escuro.
+- Testes: uma configuração só do ts-jest (`api/tsconfig.json`, com JSX do Preact e libs `ES2022`/`DOM.Iterable`). Com duas configurações no mesmo processo, o ts-jest às vezes compilava a API com a das extensões (sem decorators) conforme a ordem das suítes: falha intermitente de "reading 'constructor'".
+
 **Fase 4 — Automação e escala**
 - Lead de formulário → atendimento em segundos (captura de webhook + template); tempo real pelo canal; alertas; configuração em um clique pelo MCP da instância (criar a captura e as automações sozinho); detalhamentos por posicionamento, idade e gênero; processo `worker` separado; planos e limites.
 

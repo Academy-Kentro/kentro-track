@@ -107,7 +107,10 @@ describe('gestão: visão geral', () => {
     // Leads subiu 50% (bom); CPL subiu 25% (ruim): a cor vem da direção × o que é melhor.
     const deltas = [...raiz.querySelectorAll('.kt-indicador')].map((el) => [el.querySelector('.kt-indicador-rotulo')!.textContent, el.querySelector('.kt-delta')!.className]);
     expect(deltas).toEqual(expect.arrayContaining([['Leads', 'kt-delta kt-delta-bom'], ['Custo por lead', 'kt-delta kt-delta-ruim']]));
-    expect(texto()).toContain('▲ +50% vs. anterior');
+    // A seta é ícone; o texto da variação vem junto (direção nunca só pela cor).
+    const leads = [...raiz.querySelectorAll('.kt-indicador')].find((el) => el.querySelector('.kt-indicador-rotulo')!.textContent === 'Leads')!;
+    expect(leads.querySelector('.kt-delta')!.textContent).toBe('+50%');
+    expect(leads.querySelector('.kt-delta svg')).not.toBeNull();
 
     const graficos = raiz.querySelectorAll('figure.kt-grafico');
     expect([...graficos].map((g) => g.querySelector('h3')!.textContent)).toEqual(['Investimento por dia', 'Leads por dia']);
@@ -429,7 +432,7 @@ describe('gestão: eventos para o Meta', () => {
     expect(texto()).toContain('desligue a outra no mesmo dia');
     await clicar(botao('Buscar pixels'));
     await clicar(botao('Pixel Loja'));
-    const ativo = [...raiz.querySelectorAll('.kt-alternar input')][0] as HTMLInputElement;
+    const ativo = [...raiz.querySelectorAll('.kt-interruptor input')][0] as HTMLInputElement;
     await act(async () => {
       ativo.click();
     });

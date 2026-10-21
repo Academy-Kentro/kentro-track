@@ -13,11 +13,11 @@ interface Manifest {
 }
 
 const DIR = path.join(__dirname, '..', '..', 'extension');
-const EXTENSOES: { pasta: string; html: string }[] = JSON.parse(readFileSync(path.join(DIR, 'extensoes.json'), 'utf8'));
+const EXTENSOES: { pasta: string; html: string; arquivos?: string[] }[] = JSON.parse(readFileSync(path.join(DIR, 'extensoes.json'), 'utf8'));
 const ler = (ext: string): Manifest => JSON.parse(readFileSync(path.join(DIR, ext, 'manifest.json'), 'utf8'));
 const campo = (m: Manifest, chave: string) => m.config.find((c) => c.key === chave);
 
-describe.each(EXTENSOES)('manifest da extensão $pasta', ({ pasta, html }) => {
+describe.each(EXTENSOES)('manifest da extensão $pasta', ({ pasta, html, arquivos = [] }) => {
   const m = ler(pasta);
 
   it('segue as regras de formato da Kentro', () => {
@@ -31,6 +31,14 @@ describe.each(EXTENSOES)('manifest da extensão $pasta', ({ pasta, html }) => {
   it('a contribuição aponta para o HTML que o build gera e o código dela existe', () => {
     expect(m.contributions.map((c) => c.url)).toEqual([html]);
     expect(existsSync(path.join(DIR, pasta, 'src', 'main.tsx'))).toBe(true);
+  });
+
+  it('todo ícone declarado é um arquivo levado pelo build', () => {
+    for (const c of m.contributions as (Contribuicao & { icon?: string })[]) {
+      if (!c.icon) continue;
+      expect(arquivos).toContain(c.icon);
+      expect(existsSync(path.join(DIR, pasta, c.icon))).toBe(true);
+    }
   });
 
   it('api_url é obrigatório e vem preenchido com a URL pública', () => {

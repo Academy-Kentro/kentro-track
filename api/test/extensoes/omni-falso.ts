@@ -89,3 +89,11 @@ export const erro = (status: number, codigo: string, mensagem: string): Resposta
 export async function aguardar(vezes = 5): Promise<void> {
   for (let i = 0; i < vezes; i++) await new Promise((r) => setTimeout(r, 0));
 }
+
+/**
+ * Várias rodadas de act: o act do Preact só aplica os efeitos ao fim de cada rodada, e as telas
+ * encadeiam buscas (conta → filtros → aba).
+ */
+export async function assentar(act: (cb: () => Promise<void>) => Promise<void> | void, rodadas = 6): Promise<void> {
+  for (let i = 0; i < rodadas; i++) await act(() => aguardar(3));
+}

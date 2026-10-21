@@ -2,7 +2,8 @@ import { useState } from 'preact/hooks';
 import { Api, mensagemDeErro } from '../../comum/api';
 import { Aviso, CaixaChave } from '../../comum/componentes';
 import type { Omni } from '../../comum/omni';
-import type { Conta, Papel } from './tipos';
+import { ConexaoMeta } from './conexao-meta';
+import type { Papel } from './tipos';
 
 const CHAVES: { tipo: Papel; rotulo: string; ondeColar: string }[] = [
   { tipo: 'admin', rotulo: 'Chave de admin', ondeColar: 'Kentro Track — Gestão (instalação dos administradores)' },
@@ -61,17 +62,10 @@ function Chaves({ omni, api }: { omni: Omni; api: Api }) {
   );
 }
 
-export function Configuracoes({ omni, api, conta }: { omni: Omni; api: Api; conta: Conta }) {
+export function Configuracoes({ omni, api }: { omni: Omni; api: Api }) {
   return (
     <>
-      <section class="kt-card">
-        <h2>Conexão com o Meta</h2>
-        <p class="kt-muted">
-          {conta.loginMetaDisponivel
-            ? 'Conectar com o Facebook chega na próxima versão.'
-            : 'A conexão chega na próxima versão: primeiro pelo token de usuário do sistema, depois com o botão Conectar com o Facebook.'}
-        </p>
-      </section>
+      <ConexaoMeta omni={omni} api={api} />
       <Chaves omni={omni} api={api} />
     </>
   );

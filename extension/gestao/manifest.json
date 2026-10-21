@@ -1,7 +1,7 @@
 {
   "manifestVersion": 1,
   "id": "kentro.track-gestao",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "name": "Kentro Track — Gestão",
   "description": "Resultados das campanhas do Meta cruzados com o atendimento: investimento, leads, CPL, vendas e ROAS por campanha e anúncio.",
   "author": { "name": "Kentro" },
@@ -29,6 +29,7 @@
       "type": "topMenu",
       "title": "Kentro Track",
       "url": "gestao.html",
+      "icon": "icone.svg",
       "presentation": { "mode": "fullscreen" },
       "visibility": { "userTypes": [0, 1] }
     }

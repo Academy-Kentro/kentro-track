@@ -1,4 +1,4 @@
 [
-  { "pasta": "gestao", "html": "gestao.html" },
-  { "pasta": "atendimento", "html": "painel.html" }
+  { "pasta": "gestao", "html": "gestao.html", "arquivos": ["icone.svg"] },
+  { "pasta": "atendimento", "html": "painel.html", "arquivos": [] }
 ]

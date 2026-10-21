@@ -3,13 +3,22 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { AdminModule } from './admin/admin.module';
 import { ExtensaoController } from './arquivos-extensao/extensao.controller';
 import { ConfigApp, CONFIG_APP } from './comum/config';
+import { ESPERAR, Esperar, esperarDeVerdade, Fetch, FETCH } from './comum/fetch';
 import { PrismaService } from './comum/prisma.service';
 import { ContasModule } from './contas/contas.module';
+import { MetaModule } from './meta/meta.module';
 import { SaudeController } from './saude/saude.controller';
+
+export interface OpcoesApp {
+  /** Substitui o fetch de produção (os testes usam um Meta falso). */
+  fetch?: Fetch;
+  /** Substitui as esperas entre tentativas (os testes não esperam). */
+  esperar?: Esperar;
+}
 
 @Module({})
 export class AppModule {
-  static com(config: ConfigApp): DynamicModule {
+  static com(config: ConfigApp, opcoes: OpcoesApp = {}): DynamicModule {
     return {
       module: AppModule,
       global: true,
@@ -21,9 +30,15 @@ export class AppModule {
         ]),
         ContasModule,
         AdminModule,
+        MetaModule,
       ],
-      providers: [{ provide: CONFIG_APP, useValue: config }, PrismaService],
-      exports: [CONFIG_APP, PrismaService],
+      providers: [
+        { provide: CONFIG_APP, useValue: config },
+        { provide: FETCH, useValue: opcoes.fetch ?? fetch },
+        { provide: ESPERAR, useValue: opcoes.esperar ?? esperarDeVerdade },
+        PrismaService,
+      ],
+      exports: [CONFIG_APP, FETCH, ESPERAR, PrismaService],
       controllers: [SaudeController, ExtensaoController],
     };
   }

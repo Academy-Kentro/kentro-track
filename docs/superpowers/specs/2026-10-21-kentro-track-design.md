@@ -37,11 +37,11 @@ O **Kentro Track** é um produto **multi-cliente** com duas extensões da Kentro
 | D4 | **Um app do Meta da Kentro** (tipo Business) com **Facebook Login for Business** e configuração de **token de usuário do sistema** (não expira) | O cliente só clica em "Conectar" e escolhe os ativos; não cria app, usuário do sistema nem token |
 | D5 | **Plano B desde o dia 1: token manual** (usuário do sistema do BM do cliente colado na tela) | O App Review do Meta leva semanas; os clientes atuais do n8n migram já com o token que têm |
 | D6 | **Métricas copiadas para o nosso banco** (fato diário por anúncio), ao contrário do proxy ao vivo do Kentro Shop | Painel rápido, cruzamento com o atendimento, histórico e economia da cota da API de Marketing |
-| D7 | **Fila de tarefas no próprio Postgres (`pg-boss`)** para sincronização, leads e CAPI | Nada de infraestrutura nova no Doca (sem Redis); reenvio, agendamento e concorrência por cliente prontos |
+| D7 | **Tarefas no próprio Postgres, sem Redis.** Fase 1: a agenda da sincronização fica na própria `contas_anuncio` (colunas `proxima_*`, trava `em_execucao_ate` com `FOR UPDATE SKIP LOCKED`), rodando a cada 30 s no processo. Fase 3: `pg-boss` entra para leads e CAPI, que precisam de reenvio com espera | Nada de infraestrutura nova no Doca; a agenda simples cobre a sincronização sem uma peça a mais |
 | D8 | **Captura do atendimento em camadas**: (1) o painel do atendente lê a mensagem de anúncio do chat aberto, sem configuração; (2) uma automação da Kentro avisa a API quando o chat começa e quando a oportunidade avança (modelos prontos para copiar); (3) depois, configuração em um clique pelo MCP da instância | Funciona no primeiro dia sem automação e melhora com ela |
 | D9 | **Extensões em Preact + Vite**, compiladas (`scripts/build-extensoes.mjs`, Vite em modo IIFE) num **fragmento HTML por contribuição**: `<style>` + `<div id="app">` + `<script>` clássico, sem `<html>`/`<body>` nem módulo, servido pela API | O painel de gestão tem gráficos e tabelas: em HTML puro vira um arquivo de 100 KB difícil de manter (como o `config.html` do Kentro Shop). O fragmento é o mesmo formato que o painel do Kentro Shop já roda no iframe da Kentro (o `omni` chega como global antes do script) e não tem arquivo a mais para buscar com CORS |
 | D10 | **Gráficos sem CDN**: SVG próprio ou **uPlot** empacotado no HTML | O iframe é sandbox; não depender de recurso de terceiros |
-| D11 | Stack: **NestJS + Postgres (Prisma)**, pacote npm único, deploy no **Doca** com HTTPS em `kentro-track.apps.kentro.com.br` | Igual ao Kentro Shop; o Doca já roda esse formato |
+| D11 | Stack: **NestJS + Postgres (Prisma)**, pacote npm único, deploy no **Doca** com HTTPS em `tracks.apps.kentro.com.br` | Igual ao Kentro Shop; o Doca já roda esse formato |
 | D12 | **(a confirmar)** Ordem: **Relatório (Gestão) → Leads e Atendimento → CAPI → automações e escala** | O relatório já se paga sozinho e não depende do App Review para `leads_retrieval` |
 
 ---
@@ -118,13 +118,13 @@ kentro-track/
 | Tipo | API ou microsserviço (NestJS) |
 | Pasta do projeto | `.` (o build precisa de `extension/`) |
 | Como construir | NestJS (`npm run build` → `dist/main.js`) |
-| Subdomínio | `kentro-track` → `https://kentro-track.apps.kentro.com.br` (o padrão do Doca seria `kentro-track-mateus`; o nome curto vai aparecer na tela de consentimento do Meta) |
+| Subdomínio | `tracks` → `https://tracks.apps.kentro.com.br` (no ar desde 21/10/2026, porta interna 10004; o nome curto vai aparecer na tela de consentimento do Meta) |
 | Porta / verificação | 3000 / `/` |
 | Memória / CPU | 512 MB / 0,5 para começar (a sincronização roda no mesmo processo, com concorrência limitada) |
 | Variáveis | `DATABASE_URL`, `CHAVE_MESTRA_CRIPTO` (base64 de 32 bytes, **nunca trocar**), `TOKEN_SUPERADMIN`, `URL_PUBLICA`, `META_APP_ID`, `META_APP_SECRET`, `META_CONFIG_ID` (configuração do Login for Business), `META_WEBHOOK_VERIFY_TOKEN`, `META_API_VERSION` (ex.: `v24.0`, ⚠ confirmar a vigente) |
 | Banco | o Postgres criado no Doca para o Kentro Track, ligado ao projeto (`DATABASE_URL`). As migrações do Prisma são donas do esquema |
 
-URLs para instalar: `https://kentro-track.apps.kentro.com.br/extensao/gestao/manifest.json` e `…/extensao/atendimento/manifest.json`.
+URLs para instalar: `https://tracks.apps.kentro.com.br/extensao/gestao/manifest.json` e `…/extensao/atendimento/manifest.json`.
 
 **Escala (Fase 4):** a mesma imagem sobe com `PAPEL=api` ou `PAPEL=worker` (segundo projeto no Doca, mesmo repositório) quando a sincronização passar a disputar CPU com as requisições.
 
@@ -466,6 +466,16 @@ No banco ficam **só hashes** das chaves e do token do webhook; o token do Meta 
 **Fase 1 — Relatório (Gestão)**
 - Conexão por token manual + Login for Business (testadores), seleção de ativos, sincronização de entidades e insights, abas Visão geral, Campanhas e Criativos (só métricas do Meta), Saúde básica.
 - **Aceite:** um cliente piloto conecta em menos de 10 min e vê 90 dias de campanhas com os mesmos números do Gerenciador de Anúncios (tolerância de 1%).
+
+**Situação em 21/10/2026 (Fase 1, código; 182 testes, build e teste de fumaça do `dist/main.js`):**
+- Tabelas (migração `meta`): `conexoes_meta` (token AES-256-GCM), `contas_anuncio` (no lugar do `ativos_meta` genérico; páginas e datasets entram nas fases deles), `campanhas`, `conjuntos`, `anuncios` (criativo: título, texto, miniatura, `object_story_id`), `insights_diarios` (chave `conta_anuncio_id + anuncio_id_meta + data`, sem chave estrangeira para a entidade) e `chamadas_meta`.
+- Cliente do Graph: token no cabeçalho `Authorization` (nunca na URL), `appsecret_proof` só nos tokens do nosso app, erros classificados (190 → reconectar; 10/200–299 → permissão; 4/17/32/613/80000–80014 → limite com o tempo dos cabeçalhos de uso; 5xx → nova tentativa), paginação por cursor, registro em `chamadas_meta`.
+- Conexão por token manual: `/me`, `/me/adaccounts`, `/me/permissions` (tolerante); aviso se faltar `ads_read`; desconectar mantém os números.
+- Sincronização: entidades a cada 6 h; carga de 90 dias por relatório assíncrono; horária (ontem + hoje); recálculo diário às 4 h do fuso da conta (últimos 7 dias). Cada intervalo é relido inteiro e substitui o que havia (o Meta omite dias sem entrega). Erro → nova tentativa em 15 min (ou no tempo do limite); token recusado → conexão e conta em `reconectar`, sincronização parada. `SINCRONIZACAO=desligada` desliga a agenda do processo.
+- Painel: `GET /v1/painel/{filtros,visao-geral,campanhas,criativos}` (admin e gestor). CPL pela definição de lead de cada conta de anúncio; comparação com o período anterior de mesmo tamanho; série com zero nos dias sem entrega; moedas diferentes exigem filtrar a conta de anúncio. Miniaturas por `GET /m/<anuncio>.<hmac>` (pública, assinada, cache de 6 h, renova a URL do Meta quando expira).
+- Gestão 0.2.0: linha de filtros (período, conta, campanha; guardada por usuário), Visão geral (9 indicadores com variação, investimento e leads por dia em dois gráficos com dica e tabela), Campanhas (árvore com ordenação), Criativos (grade), Configurações › Conexão com o Meta (token com passo a passo, contas, o que conta como lead, situação da carga). Ícone no menu.
+- **Bugs de fuso achados pelos testes e corrigidos:** dias e instantes vão ao SQL como texto convertido explicitamente (`::date`, `::timestamptz AT TIME ZONE 'UTC'`), sem depender do fuso da sessão do Postgres.
+- ⚠ Conferir com a conta piloto: os tipos de ação de lead (`onsite_conversion.lead_grouped`, `offsite_conversion.fb_pixel_lead`, `onsite_conversion.messaging_conversation_started_7d`) e os totais contra o Gerenciador.
 
 **Fase 2 — Leads e Atendimento**
 - Webhook leadgen + reconciliação, webhook de eventos da Kentro, modelos de automação, painel do atendente (origem, anúncio, formulário, botões), funil Kentro no painel do gestor (Atendidos, Qualificados, Vendas, ROAS, Custo por venda), abas Leads e Equipe.

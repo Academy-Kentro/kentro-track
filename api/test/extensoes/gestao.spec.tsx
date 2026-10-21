@@ -7,7 +7,7 @@ import { act } from 'preact/test-utils';
 import { App } from '../../../extension/gestao/src/app';
 import { CHAVES_PENDENTES } from '../../../extension/gestao/src/primeiro-uso';
 import type { CtxOmni } from '../../../extension/comum/omni';
-import { aguardar, ChamadaHttp, ok, omniFalso, OpcoesFalso } from './omni-falso';
+import { assentar, ChamadaHttp, ok, omniFalso, OpcoesFalso } from './omni-falso';
 
 const CHAVES = { contaId: 'c1', chaveAdmin: 'kta_A', chaveGestor: 'ktg_G', chaveAtendimento: 'ktk_K' };
 const CONTA = {
@@ -20,6 +20,18 @@ const CONTA = {
   papel: 'admin',
   loginMetaDisponivel: false,
 };
+const SEM_CONTAS = { contasAnuncio: [], campanhas: [], cargaPendente: false, sincronizadoEm: null };
+/** A conta em /v1/conta; filtros sem contas; conexão desconectada. */
+const rotas = (conta: object, extra: (c: ChamadaHttp) => object | null = () => null) => (c: ChamadaHttp) => {
+  const caminho = new URL(c.url).pathname;
+  const outro = extra(c);
+  if (outro) return ok(outro);
+  if (caminho === '/v1/conta') return ok(conta);
+  if (caminho === '/v1/painel/filtros') return ok(SEM_CONTAS);
+  if (caminho === '/v1/meta/conexao') return ok({ conectado: false, loginMetaDisponivel: false, contasAnuncio: [] });
+  return ok({});
+};
+
 const ctx = (chave?: string): CtxOmni => ({
   config: { api_url: 'https://track.teste', ...(chave ? { chave } : {}) },
   user: { id: 1, name: 'Admin' },
@@ -41,7 +53,7 @@ async function montar(contexto: CtxOmni, opcoes: OpcoesFalso = {}) {
   await act(async () => {
     render(<App omni={falso.omni} ctx={contexto} />, raiz);
   });
-  await act(() => aguardar());
+  await assentar(act);
   return falso;
 }
 
@@ -51,7 +63,7 @@ async function clicar(texto: string) {
   await act(async () => {
     botao(texto).click();
   });
-  await act(() => aguardar());
+  await assentar(act);
 }
 
 describe('gestão: primeiro uso', () => {
@@ -76,7 +88,7 @@ describe('gestão: primeiro uso', () => {
     await act(async () => {
       render(<App omni={falso.omni} ctx={ctx()} />, raiz);
     });
-    await act(() => aguardar());
+    await assentar(act);
     expect(raiz.textContent).toContain('kta_A');
     expect(falso.chamadas).toHaveLength(0);
   });
@@ -84,12 +96,12 @@ describe('gestão: primeiro uso', () => {
 
 describe('gestão: conta conectada', () => {
   it('admin vê as abas, inclusive Configurações, e as chaves pendentes são apagadas', async () => {
-    const falso = omniFalso({ http: () => ok(CONTA) });
+    const falso = omniFalso({ http: rotas(CONTA) });
     falso.armazenamento.set(CHAVES_PENDENTES, CHAVES);
     await act(async () => {
       render(<App omni={falso.omni} ctx={ctx('kta_A')} />, raiz);
     });
-    await act(() => aguardar());
+    await assentar(act);
     expect(raiz.textContent).toContain('Empresa X · Administrador');
     expect(raiz.textContent).toContain('Meta não conectado');
     expect(botao('Configurações')).toBeTruthy();
@@ -97,32 +109,32 @@ describe('gestão: conta conectada', () => {
   });
 
   it('gestor não vê Configurações', async () => {
-    await montar(ctx('ktg_G'), { http: () => ok({ ...CONTA, papel: 'gestor' }) });
+    await montar(ctx('ktg_G'), { http: rotas({ ...CONTA, papel: 'gestor' }) });
     expect(raiz.textContent).toContain('Gestor');
     expect(botao('Configurações')).toBeUndefined();
   });
 
   it('chave de atendimento colada na Gestão é recusada', async () => {
-    await montar(ctx('ktk_K'), { http: () => ok({ ...CONTA, papel: 'atendimento' }) });
+    await montar(ctx('ktk_K'), { http: rotas({ ...CONTA, papel: 'atendimento' }) });
     expect(raiz.textContent).toContain('está com a chave de atendimento');
   });
 
   it('rotaciona uma chave depois de confirmar e mostra a nova uma vez', async () => {
     const falso = await montar(ctx('kta_A'), {
-      http: (c) => (c.url.includes('/rotacionar') ? ok({ chave: 'ktk_NOVA' }) : ok(CONTA)),
+      http: rotas(CONTA, (c) => (c.url.includes('/rotacionar') ? { chave: 'ktk_NOVA' } : null)),
     });
     await clicar('Configurações');
     const gerar = [...raiz.querySelectorAll('button')].filter((b) => b.textContent === 'Gerar nova');
     await act(async () => {
       gerar[2].click();
     });
-    await act(() => aguardar());
+    await assentar(act);
     expect(falso.chamadas.at(-1)).toMatchObject({ url: 'https://track.teste/v1/conta/chaves/atendimento/rotacionar', method: 'POST' });
     expect(raiz.textContent).toContain('ktk_NOVA');
   });
 
   it('não rotaciona se o admin cancelar', async () => {
-    const falso = await montar(ctx('kta_A'), { http: () => ok(CONTA), confirmar: false });
+    const falso = await montar(ctx('kta_A'), { http: rotas(CONTA), confirmar: false });
     await clicar('Configurações');
     await clicar('Gerar nova');
     expect(falso.chamadas.filter((c) => c.url.includes('/rotacionar'))).toHaveLength(0);

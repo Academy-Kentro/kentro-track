@@ -13,7 +13,7 @@ const extensoes = JSON.parse(readFileSync(join(raiz, 'extension', 'extensoes.jso
 /** Um "</script" dentro do JS fecharia a tag antes da hora. */
 const protegerScript = (js) => js.replace(/<\/script/gi, '<\\/script');
 
-for (const { pasta, html } of extensoes) {
+for (const { pasta, html, arquivos = [] } of extensoes) {
   const origem = join(raiz, 'extension', pasta);
   const temporaria = mkdtempSync(join(tmpdir(), `kentro-track-${pasta}-`));
   try {
@@ -31,9 +31,11 @@ for (const { pasta, html } of extensoes) {
         lib: { entry: join(origem, 'src', 'main.tsx'), formats: ['iife'], name: 'KentroTrack', fileName: () => 'app.js' },
       },
     });
-    const arquivos = readdirSync(temporaria);
+    const gerados = readdirSync(temporaria);
     const js = readFileSync(join(temporaria, 'app.js'), 'utf8');
-    const css = arquivos.filter((a) => a.endsWith('.css')).map((a) => readFileSync(join(temporaria, a), 'utf8')).join('\n');
+    const css = gerados.filter((a) => a.endsWith('.css')).map((a) => readFileSync(join(temporaria, a), 'utf8')).join('\n');
+    // Sem CSS a tela monta "crua" na Kentro sem erro nenhum: melhor quebrar o build.
+    if (!css.trim()) throw new Error(`extensão ${pasta}: o build não gerou CSS.`);
 
     const destino = join(raiz, 'dist', 'extensao', pasta);
     rmSync(destino, { recursive: true, force: true });
@@ -41,6 +43,7 @@ for (const { pasta, html } of extensoes) {
     const fragmento = `<!-- Gerado por scripts/build-extensoes.mjs a partir de extension/${pasta}/src. Não edite. -->\n<style>\n${css}\n</style>\n<div id="app"></div>\n<script>\n${protegerScript(js)}\n</script>\n`;
     writeFileSync(join(destino, html), fragmento);
     copyFileSync(join(origem, 'manifest.json'), join(destino, 'manifest.json'));
+    for (const arquivo of arquivos) copyFileSync(join(origem, arquivo), join(destino, arquivo));
     console.log(`extensão ${pasta}: dist/extensao/${pasta}/${html} (${(fragmento.length / 1024).toFixed(1)} KB)`);
   } finally {
     rmSync(temporaria, { recursive: true, force: true });

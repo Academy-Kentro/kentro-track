@@ -31,5 +31,186 @@ model Conta {
   criadoEm             DateTime    @default(now()) @map("criado_em")
   atualizadoEm         DateTime    @updatedAt @map("atualizado_em")
 
+  conexaoMeta    ConexaoMeta?
+  contasAnuncio  ContaAnuncio[]
+  campanhas      Campanha[]
+  conjuntos      Conjunto[]
+  anuncios       Anuncio[]
+  insights       InsightDiario[]
+  chamadasMeta   ChamadaMeta[]
+
   @@map("contas")
+}
+
+enum TipoConexaoMeta {
+  token_manual
+  login_empresa
+}
+
+enum StatusConexaoMeta {
+  ativa
+  reconectar
+}
+
+/// O acesso ao Meta do cliente. O token só existe cifrado (AES-256-GCM com a CHAVE_MESTRA_CRIPTO).
+model ConexaoMeta {
+  contaId         String            @id @map("conta_id") @db.Uuid
+  tipo            TipoConexaoMeta
+  tokenCifrado    Bytes             @map("token_cifrado")
+  iv              Bytes
+  usuarioMetaId   String            @map("usuario_meta_id")
+  usuarioMetaNome String            @map("usuario_meta_nome")
+  escopos         String[]
+  status          StatusConexaoMeta @default(ativa)
+  verificadoEm    DateTime          @map("verificado_em")
+  ultimoErro      String?           @map("ultimo_erro")
+  criadoEm        DateTime          @default(now()) @map("criado_em")
+  atualizadoEm    DateTime          @updatedAt @map("atualizado_em")
+
+  conta Conta @relation(fields: [contaId], references: [id], onDelete: Cascade)
+
+  @@map("conexoes_meta")
+}
+
+/// Conta de anúncio que o token enxerga. Só as selecionadas são sincronizadas e entram nos painéis.
+model ContaAnuncio {
+  id            String   @id @default(uuid()) @db.Uuid
+  contaId       String   @map("conta_id") @db.Uuid
+  /// "act_<número>", como o Graph identifica.
+  idMeta        String   @map("id_meta")
+  nome          String
+  moeda         String
+  fuso          String
+  /// account_status do Meta (1 = ativa).
+  statusMeta    Int?     @map("status_meta")
+  empresa       String?
+  selecionada   Boolean  @default(false)
+  /// O que conta como lead no CPL: "formulario", "conversa" e/ou "site".
+  definicaoLead String[] @default(["formulario", "conversa"]) @map("definicao_lead")
+
+  // Agenda da sincronização (a trava em_execucao_ate evita dois processos na mesma conta).
+  cargaConcluidaEm      DateTime? @map("carga_concluida_em")
+  proximaHorariaEm      DateTime? @map("proxima_horaria_em")
+  proximoRecalculoEm    DateTime? @map("proximo_recalculo_em")
+  proximaEntidadesEm    DateTime? @map("proxima_entidades_em")
+  emExecucaoAte         DateTime? @map("em_execucao_ate")
+  ultimaSincronizacaoEm DateTime? @map("ultima_sincronizacao_em")
+  ultimoErro            String?   @map("ultimo_erro")
+
+  criadoEm     DateTime @default(now()) @map("criado_em")
+  atualizadoEm DateTime @updatedAt @map("atualizado_em")
+
+  conta Conta @relation(fields: [contaId], references: [id], onDelete: Cascade)
+
+  @@unique([contaId, idMeta])
+  @@map("contas_anuncio")
+}
+
+model Campanha {
+  id                String   @id @default(uuid()) @db.Uuid
+  contaId           String   @map("conta_id") @db.Uuid
+  contaAnuncioId    String   @map("conta_anuncio_id") @db.Uuid
+  idMeta            String   @map("id_meta")
+  nome              String
+  status            String?
+  statusEfetivo     String?  @map("status_efetivo")
+  objetivo          String?
+  orcamentoDiario   Decimal? @map("orcamento_diario") @db.Decimal(14, 2)
+  orcamentoTotal    Decimal? @map("orcamento_total") @db.Decimal(14, 2)
+  atualizadoEm      DateTime @updatedAt @map("atualizado_em")
+
+  conta Conta @relation(fields: [contaId], references: [id], onDelete: Cascade)
+
+  @@unique([contaAnuncioId, idMeta])
+  @@map("campanhas")
+}
+
+model Conjunto {
+  id               String   @id @default(uuid()) @db.Uuid
+  contaId          String   @map("conta_id") @db.Uuid
+  contaAnuncioId   String   @map("conta_anuncio_id") @db.Uuid
+  idMeta           String   @map("id_meta")
+  campanhaIdMeta   String   @map("campanha_id_meta")
+  nome             String
+  status           String?
+  statusEfetivo    String?  @map("status_efetivo")
+  orcamentoDiario  Decimal? @map("orcamento_diario") @db.Decimal(14, 2)
+  orcamentoTotal   Decimal? @map("orcamento_total") @db.Decimal(14, 2)
+  atualizadoEm     DateTime @updatedAt @map("atualizado_em")
+
+  conta Conta @relation(fields: [contaId], references: [id], onDelete: Cascade)
+
+  @@unique([contaAnuncioId, idMeta])
+  @@map("conjuntos")
+}
+
+model Anuncio {
+  id              String   @id @default(uuid()) @db.Uuid
+  contaId         String   @map("conta_id") @db.Uuid
+  contaAnuncioId  String   @map("conta_anuncio_id") @db.Uuid
+  idMeta          String   @map("id_meta")
+  conjuntoIdMeta  String   @map("conjunto_id_meta")
+  campanhaIdMeta  String   @map("campanha_id_meta")
+  nome            String
+  status          String?
+  statusEfetivo   String?  @map("status_efetivo")
+  criativoIdMeta  String?  @map("criativo_id_meta")
+  /// URL do Meta (expira): a extensão recebe a nossa rota /m/… assinada, nunca esta.
+  miniaturaUrl    String?  @map("miniatura_url")
+  titulo          String?
+  texto           String?
+  /// object_story_id / effective_object_story_id: liga o anúncio à mensagem de clique para WhatsApp (Fase 2).
+  objectStoryId   String?  @map("object_story_id")
+  permalink       String?
+  atualizadoEm    DateTime @updatedAt @map("atualizado_em")
+
+  conta Conta @relation(fields: [contaId], references: [id], onDelete: Cascade)
+
+  @@unique([contaAnuncioId, idMeta])
+  @@map("anuncios")
+}
+
+/// Fato diário por anúncio, no fuso da conta de anúncio. Ids do Meta sem chave estrangeira:
+/// a métrica pode chegar antes da entidade (anúncio criado entre duas sincronizações).
+model InsightDiario {
+  contaId          String   @map("conta_id") @db.Uuid
+  contaAnuncioId   String   @map("conta_anuncio_id") @db.Uuid
+  data             DateTime @db.Date
+  anuncioIdMeta    String   @map("anuncio_id_meta")
+  conjuntoIdMeta   String   @map("conjunto_id_meta")
+  campanhaIdMeta   String   @map("campanha_id_meta")
+  investimento     Decimal  @default(0) @db.Decimal(14, 2)
+  impressoes       Int      @default(0)
+  alcance          Int      @default(0)
+  cliques          Int      @default(0)
+  cliquesLink      Int      @default(0) @map("cliques_link")
+  leadsFormulario  Int      @default(0) @map("leads_formulario")
+  leadsSite        Int      @default(0) @map("leads_site")
+  conversas        Int      @default(0)
+  acoes            Json     @default("{}")
+  valoresAcoes     Json     @default("{}") @map("valores_acoes")
+  atualizadoEm     DateTime @updatedAt @map("atualizado_em")
+
+  conta Conta @relation(fields: [contaId], references: [id], onDelete: Cascade)
+
+  @@id([contaAnuncioId, anuncioIdMeta, data])
+  @@index([contaId, data])
+  @@map("insights_diarios")
+}
+
+/// Registro de chamadas ao Graph para a aba Saúde: sem token, sem query, sem dado pessoal. Apagado após 7 dias.
+model ChamadaMeta {
+  id         BigInt   @id @default(autoincrement())
+  contaId    String?  @map("conta_id") @db.Uuid
+  operacao   String
+  statusHttp Int?     @map("status_http")
+  ms         Int
+  erroCodigo String?  @map("erro_codigo")
+  uso        Json?
+  em         DateTime @default(now())
+
+  conta Conta? @relation(fields: [contaId], references: [id], onDelete: Cascade)
+
+  @@index([contaId, em])
+  @@map("chamadas_meta")
 }

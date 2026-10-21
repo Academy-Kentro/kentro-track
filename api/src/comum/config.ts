@@ -13,6 +13,8 @@ export interface ConfigApp {
   meta: ConfigMeta | null;
   /** Versão da Graph API, ex.: "v24.0". Vale também para o token manual. */
   metaVersaoApi: string;
+  /** Agenda de sincronização com o Meta rodando neste processo. SINCRONIZACAO=desligada para desligar. */
+  sincronizacaoAutomatica: boolean;
 }
 
 export interface ConfigMeta {
@@ -55,6 +57,7 @@ export function lerConfig(env: NodeJS.ProcessEnv): ConfigApp {
     dirExtensao: env.DIR_EXTENSAO || path.join(dist, 'extensao'),
     meta: lerMeta(env),
     metaVersaoApi,
+    sincronizacaoAutomatica: env.SINCRONIZACAO?.trim().toLowerCase() !== 'desligada',
   };
 }
 

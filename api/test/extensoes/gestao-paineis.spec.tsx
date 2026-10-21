@@ -4,6 +4,7 @@
  */
 import { render } from 'preact';
 import { act } from 'preact/test-utils';
+import { mensagemDeErro } from '../../../extension/comum/api';
 import { dinheiro, percentual, variacao } from '../../../extension/comum/formato';
 import type { CtxOmni } from '../../../extension/comum/omni';
 import { App } from '../../../extension/gestao/src/app';
@@ -271,6 +272,15 @@ describe('gestão: conexão com o Meta', () => {
     expect(texto()).toContain('O Meta deixou de aceitar o token (Session has expired)');
     expect(raiz.querySelector('textarea')).not.toBeNull();
     expect(raiz.querySelector('.kt-contas-anuncio')).toBeNull();
+  });
+});
+
+describe('mensagens de erro da extensão', () => {
+  it('mostra a mensagem da API também nos 5xx (ex.: motivo do Meta) e o código quando a falha é na Kentro', () => {
+    expect(mensagemDeErro({ status: 502, codigo: 'META_INDISPONIVEL', mensagem: 'Não foi possível falar com o Meta agora: x' })).toBe('Não foi possível falar com o Meta agora: x');
+    expect(mensagemDeErro({ status: 0, codigo: 'bad_args', mensagem: '' })).toBe('Não foi possível falar com o Kentro Track agora. Tente de novo em instantes. (código: bad_args)');
+    expect(mensagemDeErro({ status: 0, codigo: 'timeout', mensagem: '' })).toContain('demorou demais');
+    expect(mensagemDeErro({ status: 503, codigo: '', mensagem: '' })).toContain('(código: HTTP 503)');
   });
 });
 

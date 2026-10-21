@@ -86,6 +86,25 @@ describe('conexão com o Meta por token de usuário do sistema', () => {
     expect(res.body.erro).toMatchObject({ codigo: 'SEM_CONTAS_DE_ANUNCIO', mensagem: expect.stringContaining('Atribuir ativos') });
   });
 
+  it('se o token não lê o nome da empresa, lista as contas sem ele', async () => {
+    comUsuarioDoSistema(meta);
+    meta.get('me/adaccounts', (req) =>
+      req.params.get('fields')!.includes('business')
+        ? erroMeta(100, '(#100) Tried accessing nonexisting field (business)')
+        : { corpo: { data: [{ id: 'act_111', name: 'Loja Principal', currency: 'BRL', timezone_name: 'America/Sao_Paulo', account_status: 1 }] } },
+    );
+    const res = await conectar();
+    expect(res.status).toBe(200);
+    expect(res.body.contasAnuncio).toEqual([expect.objectContaining({ idMeta: 'act_111', empresa: null })]);
+  });
+
+  it('recusa do Meta que não é do token vira 400 com a mensagem dele', async () => {
+    meta.get('me', erroMeta(100, 'Unsupported get request'));
+    const res = await conectar();
+    expect(res.status).toBe(400);
+    expect(res.body.erro).toEqual({ codigo: 'RECUSADO_PELO_META', mensagem: 'O Meta recusou a consulta: Unsupported get request' });
+  });
+
   it('Meta fora do ar vira 502', async () => {
     meta.get('me', erroMeta(2, 'Service temporarily unavailable', 503));
     const res = await conectar();

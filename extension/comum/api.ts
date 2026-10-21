@@ -83,6 +83,10 @@ export function mensagemDeErro(erro: unknown): string {
   if (e.codigo === 'forbidden_kentro') return 'A Kentro recusou a chamada ao Kentro Track. Peça ao administrador para conferir a chave e a permissão de chamadas externas.';
   if (e.codigo === 'CONTA_BLOQUEADA') return 'Esta conta está bloqueada no Kentro Track. Fale com o suporte.';
   if (e.codigo === 'rate_limited') return 'Muitas consultas seguidas. Aguarde um minuto.';
-  if (e.status && e.status >= 400 && e.status < 500 && e.mensagem) return e.mensagem;
-  return 'Não foi possível falar com o Kentro Track agora. Tente de novo em instantes.';
+  if (e.codigo === 'timeout') return 'O Kentro Track demorou demais para responder. Tente de novo em instantes.';
+  // As mensagens da API (inclusive 502 com o motivo do Meta) são escritas para o usuário: mostra.
+  if (e.status && e.status >= 400 && e.mensagem) return e.mensagem;
+  // Falha antes de chegar à API (no proxy da Kentro): o código ajuda o suporte.
+  const codigo = e.codigo || (e.status ? `HTTP ${e.status}` : '');
+  return `Não foi possível falar com o Kentro Track agora. Tente de novo em instantes.${codigo ? ` (código: ${codigo})` : ''}`;
 }

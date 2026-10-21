@@ -1,11 +1,11 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ContaAnuncio } from '@prisma/client';
 import { ConfigApp, CONFIG_APP } from '../../comum/config';
 import { cifrar, decifrar } from '../../comum/cripto';
 import { ErroApi } from '../../comum/erros';
 import { PrismaService } from '../../comum/prisma.service';
 import { ClienteGraph, TokenMeta } from '../cliente/graph';
-import { ErroMeta, PermissaoFaltando, TokenInvalido } from '../cliente/erros';
+import { ErroMeta, PermissaoFaltando, RecusadoPeloMeta, TokenInvalido } from '../cliente/erros';
 
 const DEFINICOES = ['formulario', 'conversa', 'site'] as const;
 export type DefinicaoLead = (typeof DEFINICOES)[number];
@@ -56,11 +56,18 @@ function mensagemDeConexao(erro: ErroMeta): ErroApi {
   if (erro instanceof PermissaoFaltando) {
     return new ErroApi(400, 'PERMISSAO_META_FALTANDO', `O token não tem a permissão necessária: ${erro.message}`);
   }
+  if (erro instanceof RecusadoPeloMeta) {
+    return new ErroApi(400, 'RECUSADO_PELO_META', `O Meta recusou a consulta: ${erro.message}`);
+  }
   return new ErroApi(502, erro.codigo, `Não foi possível falar com o Meta agora: ${erro.message}`);
 }
 
+const CAMPOS_CONTA = 'id,name,currency,timezone_name,account_status';
+
 @Injectable()
 export class ConexaoService {
+  private readonly logger = new Logger('ConexaoMeta');
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly graph: ClienteGraph,
@@ -76,15 +83,13 @@ export class ConexaoService {
     let escopos: string[] = [];
     try {
       usuario = await this.graph.get(token, 'me', { fields: 'id,name' }, ctx);
-      contas = await this.graph.listar<ContaAnuncioGraph>(
-        token,
-        'me/adaccounts',
-        { fields: 'id,name,currency,timezone_name,account_status,business{name}', limit: 200 },
-        ctx,
-        20,
-      );
+      contas = await this.contasAnuncio(token, ctx);
     } catch (erro) {
-      if (erro instanceof ErroMeta) throw mensagemDeConexao(erro);
+      if (erro instanceof ErroMeta) {
+        // Sem o token: só o código, a mensagem do Meta e o fbtrace_id, que o suporte do Meta pede.
+        this.logger.warn(`Conectar (conta ${contaId}): ${erro.codigo} ${erro.message}${erro.fbtraceId ? ` [fbtrace ${erro.fbtraceId}]` : ''}`);
+        throw mensagemDeConexao(erro);
+      }
       throw erro;
     }
     try {
@@ -135,6 +140,21 @@ export class ConexaoService {
 
     const faltando = escopos.length ? ESCOPOS_ESSENCIAIS.filter((e) => !escopos.includes(e)) : [];
     return { ...(await this.estado(contaId)), avisos: faltando.map((e) => `O token não tem a permissão ${e}: os números das campanhas não vão chegar.`) };
+  }
+
+  /**
+   * O nome da empresa (business{name}) é só informativo e nem todo token consegue lê-lo
+   * (exige business_management em alguns casos): se o Meta recusar, lista sem ele.
+   */
+  private async contasAnuncio(token: TokenMeta, ctx: { contaId: string; operacao: string }): Promise<ContaAnuncioGraph[]> {
+    const listar = (fields: string) => this.graph.listar<ContaAnuncioGraph>(token, 'me/adaccounts', { fields, limit: 200 }, ctx, 20);
+    try {
+      return await listar(`${CAMPOS_CONTA},business{name}`);
+    } catch (erro) {
+      if (!(erro instanceof RecusadoPeloMeta || erro instanceof PermissaoFaltando)) throw erro;
+      this.logger.warn(`Contas de anúncio sem o nome da empresa (conta ${ctx.contaId}): ${erro.message}`);
+      return listar(CAMPOS_CONTA);
+    }
   }
 
   async estado(contaId: string) {

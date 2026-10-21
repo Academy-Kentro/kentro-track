@@ -6,6 +6,7 @@ import { Campanhas } from './campanhas';
 import { Configuracoes } from './configuracoes';
 import { Criativos } from './criativos';
 import { BarraFiltros, consulta, Filtro, PRESETS, useDados } from './filtro';
+import { DadosEquipe, DadosLeads, Equipe, FiltroLeads, Leads } from './leads';
 import { CHAVES_PENDENTES, PrimeiroUso } from './primeiro-uso';
 import type { Campanhas as DadosCampanhas, Conta, Criativos as DadosCriativos, Filtros, VisaoGeral as DadosVisao } from './tipos';
 import { VisaoGeral } from './visao-geral';
@@ -29,17 +30,9 @@ const FILTRO_PADRAO: Filtro = { preset: 'ultimos30', contaAnuncio: '', campanha:
 /** Enquanto os 90 dias chegam, as abas se atualizam sozinhas. */
 const ATUALIZAR_NA_CARGA_MS = 30_000;
 
-function EmBreve({ titulo, texto }: { titulo: string; texto: string }) {
-  return (
-    <section class="kt-card">
-      <h2>{titulo}</h2>
-      <p class="kt-muted">{texto}</p>
-    </section>
-  );
-}
-
 function Paineis({ omni, api, conta, aba, irPara }: { omni: Omni; api: Api; conta: Conta; aba: IdAba; irPara: (a: IdAba) => void }) {
   const [filtro, setFiltro] = useState<Filtro>(FILTRO_PADRAO);
+  const [filtroLeads, setFiltroLeads] = useState<FiltroLeads>({ origem: '', etapa: '', pagina: 1 });
 
   // O filtro é do usuário (omni.storage é por usuário e dispositivo).
   useEffect(() => {
@@ -53,6 +46,7 @@ function Paineis({ omni, api, conta, aba, irPara }: { omni: Omni; api: Api; cont
   }, [omni]);
   const mudar = (f: Filtro) => {
     setFiltro(f);
+    setFiltroLeads((l) => ({ ...l, pagina: 1 }));
     omni.storage.set(FILTRO_SALVO, f).catch(() => {});
   };
 
@@ -68,9 +62,12 @@ function Paineis({ omni, api, conta, aba, irPara }: { omni: Omni; api: Api; cont
   const visao = useDados<DadosVisao>(api, pronto && aba === 'visao' ? `/v1/painel/visao-geral?${q}` : null, intervalo);
   const campanhas = useDados<DadosCampanhas>(api, pronto && aba === 'campanhas' ? `/v1/painel/campanhas?${q}` : null, intervalo);
   const criativos = useDados<DadosCriativos>(api, pronto && aba === 'criativos' ? `/v1/painel/criativos?${q}` : null, intervalo);
-
-  if (aba === 'leads') return <EmBreve titulo="Leads" texto="A lista de leads, com origem, atendente e tempo de resposta, chega com a integração do atendimento (Fase 2)." />;
-  if (aba === 'equipe') return <EmBreve titulo="Equipe" texto="Leads, qualificação e vendas por atendente chegam com a integração do atendimento (Fase 2)." />;
+  const qLeads = new URLSearchParams(q);
+  if (filtroLeads.origem) qLeads.set('origem', filtroLeads.origem);
+  if (filtroLeads.etapa) qLeads.set('etapa', filtroLeads.etapa);
+  if (filtroLeads.pagina > 1) qLeads.set('pagina', String(filtroLeads.pagina));
+  const leads = useDados<DadosLeads>(api, pronto && aba === 'leads' ? `/v1/painel/leads?${qLeads}` : null);
+  const equipe = useDados<DadosEquipe>(api, pronto && aba === 'equipe' ? `/v1/painel/equipe?${q}` : null);
 
   if (!opcoes.dados) return opcoes.erro ? <Aviso tipo="erro">{opcoes.erro}</Aviso> : <Carregando />;
   if (!pronto) {
@@ -93,6 +90,8 @@ function Paineis({ omni, api, conta, aba, irPara }: { omni: Omni; api: Api; cont
       {aba === 'visao' && <VisaoGeral carga={visao} />}
       {aba === 'campanhas' && <Campanhas carga={campanhas} />}
       {aba === 'criativos' && <Criativos carga={criativos} />}
+      {aba === 'leads' && <Leads omni={omni} carga={leads} filtro={filtroLeads} mudar={setFiltroLeads} />}
+      {aba === 'equipe' && <Equipe carga={equipe} />}
     </>
   );
 }

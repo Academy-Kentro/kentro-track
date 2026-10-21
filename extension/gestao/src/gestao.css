@@ -41,6 +41,7 @@
 .kt-indicador-rotulo { font-size: .85em; color: var(--ext-color-text-muted); }
 .kt-indicador-valor { font-size: 1.45em; font-weight: 600; }
 .kt-indicador-destaque { grid-column: span 2; }
+.kt-secao { font-size: 1em; color: var(--ext-color-text-muted); font-weight: 600; margin: 16px 0 0; }
 .kt-indicador-destaque .kt-indicador-valor { font-size: 2.4em; line-height: 1.1; }
 .kt-delta { font-size: .82em; }
 .kt-delta-bom { color: var(--ext-color-success); }
@@ -75,6 +76,13 @@
   font-size: .85em;
 }
 .kt-dica span { color: var(--ext-color-text-muted); }
+
+/* ── Funil ── */
+.kt-funil-tabela { width: 100%; border-collapse: collapse; }
+.kt-funil-tabela th { text-align: left; font-weight: 400; padding: 6px 10px 6px 0; white-space: nowrap; width: 1%; }
+.kt-funil-tabela td { padding: 6px 0 6px 10px; }
+.kt-funil-barra-celula { width: 100%; }
+.kt-funil-barra { height: 18px; background: var(--ext-color-primary); border-radius: 0 4px 4px 0; }
 
 /* ── Tabelas ── */
 .kt-tabela-rolagem { overflow-x: auto; max-height: 70vh; }
@@ -111,3 +119,28 @@
 .kt-conta-detalhe { margin: 10px 0 0 26px; }
 .kt-definicao { border: 0; padding: 0; margin: 0 0 8px; display: flex; flex-wrap: wrap; gap: 6px 16px; }
 .kt-definicao legend { font-size: .85em; color: var(--ext-color-text-muted); margin-bottom: 4px; padding: 0; }
+
+/* ── Leads ── */
+.kt-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.kt-chip { font: inherit; font-size: .88em; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--kt-linha); background: var(--ext-color-bg); color: var(--ext-color-text); cursor: pointer; }
+.kt-chip[aria-pressed="true"] { border-color: var(--ext-color-primary); background: var(--kt-suave); color: var(--ext-color-primary); font-weight: 600; }
+.kt-celula-quebra { white-space: normal !important; min-width: 220px; }
+
+/* ── Integração ── */
+.kt-evento { border-top: 1px solid var(--kt-linha); padding: 10px 0; }
+.kt-evento summary { cursor: pointer; }
+
+/* ── Eventos para o Meta ── */
+.kt-alternar { display: flex; gap: 8px; align-items: center; margin: 10px 0; cursor: pointer; }
+.kt-pixels { list-style: none; padding: 0; margin: 0 0 12px; }
+.kt-pixels li { padding: 4px 0; }
+.kt-mapeamento th { font-weight: 400; color: var(--ext-color-text); white-space: normal; position: static; }
+.kt-mapeamento select, .kt-mapeamento input, .kt-campo input {
+  font: inherit;
+  padding: 6px 10px;
+  border: 1px solid var(--ext-color-border);
+  border-radius: var(--kt-r);
+  background: var(--ext-color-bg);
+  color: var(--ext-color-text);
+}
+.kt-envios { border-top: 1px solid var(--kt-linha); padding-top: 12px; }

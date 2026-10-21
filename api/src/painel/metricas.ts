@@ -6,6 +6,11 @@ export interface Somas {
   cliquesLink: number;
   leads: number;
   conversas: number;
+  // Do atendimento (leads de anúncio no período): entradas, qualificados, vendas e receita.
+  entradas: number;
+  qualificados: number;
+  vendas: number;
+  receita: number;
 }
 
 /** Somas + taxas. Taxa sem denominador é null ("—" na tela), nunca 0 nem Infinity. */
@@ -15,9 +20,24 @@ export interface Metricas extends Somas {
   cpm: number | null;
   cpl: number | null;
   custoPorConversa: number | null;
+  roas: number | null;
+  custoPorVenda: number | null;
+  /** Vendas ÷ entradas, em %. */
+  taxaVenda: number | null;
 }
 
-export const ZERO: Somas = { investimento: 0, impressoes: 0, cliques: 0, cliquesLink: 0, leads: 0, conversas: 0 };
+export const ZERO: Somas = {
+  investimento: 0,
+  impressoes: 0,
+  cliques: 0,
+  cliquesLink: 0,
+  leads: 0,
+  conversas: 0,
+  entradas: 0,
+  qualificados: 0,
+  vendas: 0,
+  receita: 0,
+};
 
 const num = (v: unknown) => {
   const n = Number(v ?? 0);
@@ -35,18 +55,19 @@ export function somasDe(linha: Record<string, unknown> | undefined): Somas {
     cliquesLink: num(linha.cliques_link ?? linha.cliquesLink),
     leads: num(linha.leads),
     conversas: num(linha.conversas),
+    entradas: num(linha.entradas),
+    qualificados: num(linha.qualificados),
+    vendas: num(linha.vendas),
+    receita: dinheiro(num(linha.receita)),
   };
 }
 
 export function somar(a: Somas, b: Somas): Somas {
-  return {
-    investimento: dinheiro(a.investimento + b.investimento),
-    impressoes: a.impressoes + b.impressoes,
-    cliques: a.cliques + b.cliques,
-    cliquesLink: a.cliquesLink + b.cliquesLink,
-    leads: a.leads + b.leads,
-    conversas: a.conversas + b.conversas,
-  };
+  const r = { ...ZERO };
+  for (const k of Object.keys(ZERO) as (keyof Somas)[]) r[k] = a[k] + b[k];
+  r.investimento = dinheiro(r.investimento);
+  r.receita = dinheiro(r.receita);
+  return r;
 }
 
 export function calcular(s: Somas): Metricas {
@@ -58,5 +79,8 @@ export function calcular(s: Somas): Metricas {
     cpm: divisao(s.investimento, s.impressoes, 1000),
     cpl: divisao(s.investimento, s.leads),
     custoPorConversa: divisao(s.investimento, s.conversas),
+    roas: divisao(s.receita, s.investimento),
+    custoPorVenda: divisao(s.investimento, s.vendas),
+    taxaVenda: divisao(s.vendas, s.entradas, 100),
   };
 }

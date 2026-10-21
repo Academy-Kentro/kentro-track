@@ -3,6 +3,8 @@ import { Api, mensagemDeErro } from '../../comum/api';
 import { Aviso, CaixaChave } from '../../comum/componentes';
 import type { Omni } from '../../comum/omni';
 import { ConexaoMeta } from './conexao-meta';
+import { EventosMeta } from './eventos-meta';
+import { IntegracaoAtendimento } from './integracao';
 import type { Papel } from './tipos';
 
 const CHAVES: { tipo: Papel; rotulo: string; ondeColar: string }[] = [
@@ -66,6 +68,8 @@ export function Configuracoes({ omni, api }: { omni: Omni; api: Api }) {
   return (
     <>
       <ConexaoMeta omni={omni} api={api} />
+      <IntegracaoAtendimento omni={omni} api={api} />
+      <EventosMeta omni={omni} api={api} />
       <Chaves omni={omni} api={api} />
     </>
   );

@@ -45,6 +45,7 @@ export interface Omni {
   chats: {
     getSelected(): Promise<ChatOmni | null>;
     getMessages(chatId: number, opts?: { limit?: number; before?: number | string }): Promise<MensagemOmni[]>;
+    select(chatId: number): Promise<{ selected: boolean }>;
   };
   ui: {
     toast(msg: string, tipo?: 'success' | 'error' | 'info' | 'warning'): Promise<unknown>;

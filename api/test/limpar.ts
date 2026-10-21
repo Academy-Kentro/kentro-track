@@ -7,7 +7,7 @@ import { PrismaClient } from '@prisma/client';
 export async function limparBanco(prisma: PrismaClient): Promise<void> {
   for (let tentativa = 1; ; tentativa++) {
     try {
-      await prisma.$executeRawUnsafe('TRUNCATE contas, chamadas_meta CASCADE');
+      await prisma.$executeRawUnsafe('TRUNCATE contas, chamadas_meta, leads, eventos_lead, envios_capi, config_capi CASCADE');
       return;
     } catch (erro) {
       if (tentativa >= 5) throw erro;

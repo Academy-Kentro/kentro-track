@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
 import { ConfigApp, CONFIG_APP } from '../../comum/config';
+import { CapiService } from '../../capi/capi.service';
 import { PrismaService } from '../../comum/prisma.service';
 import { SincronizacaoService } from './sincronizacao.service';
 
@@ -18,6 +19,7 @@ export class AgendaSincronizacao implements OnApplicationBootstrap, OnModuleDest
 
   constructor(
     private readonly sincronizacao: SincronizacaoService,
+    private readonly capi: CapiService,
     private readonly prisma: PrismaService,
     @Inject(CONFIG_APP) private readonly config: ConfigApp,
   ) {}
@@ -37,6 +39,8 @@ export class AgendaSincronizacao implements OnApplicationBootstrap, OnModuleDest
     if (this.rodando) return;
     this.rodando = true;
     try {
+      // Eventos primeiro: são rápidos e o atraso aparece para o cliente (otimização das campanhas).
+      await this.capi.enviarPendentes();
       for (let i = 0; i < POR_CICLO; i++) if (!(await this.sincronizacao.executarProxima())) break;
       if (Date.now() - this.ultimaLimpeza > LIMPEZA_MS) {
         this.ultimaLimpeza = Date.now();

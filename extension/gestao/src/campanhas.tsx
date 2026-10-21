@@ -1,11 +1,11 @@
 import { useState } from 'preact/hooks';
 import { Aviso } from '../../comum/componentes';
-import { dinheiro, inteiro, percentual } from '../../comum/formato';
+import { dinheiro, inteiro, percentual, vezes } from '../../comum/formato';
 import type { Carga } from './filtro';
 import { SituacaoCarga } from './visao-geral';
 import type { Campanhas as Dados, Metricas, NoCampanha } from './tipos';
 
-type Coluna = { chave: keyof Metricas; rotulo: string; formato: 'dinheiro' | 'inteiro' | 'percentual' };
+type Coluna = { chave: keyof Metricas; rotulo: string; formato: 'dinheiro' | 'inteiro' | 'percentual' | 'vezes' };
 
 const COLUNAS: Coluna[] = [
   { chave: 'investimento', rotulo: 'Investimento', formato: 'dinheiro' },
@@ -16,6 +16,10 @@ const COLUNAS: Coluna[] = [
   { chave: 'cpl', rotulo: 'CPL', formato: 'dinheiro' },
   { chave: 'conversas', rotulo: 'Conversas', formato: 'inteiro' },
   { chave: 'custoPorConversa', rotulo: 'Custo/conversa', formato: 'dinheiro' },
+  { chave: 'vendas', rotulo: 'Vendas', formato: 'inteiro' },
+  { chave: 'receita', rotulo: 'Receita', formato: 'dinheiro' },
+  { chave: 'roas', rotulo: 'ROAS', formato: 'vezes' },
+  { chave: 'custoPorVenda', rotulo: 'Custo/venda', formato: 'dinheiro' },
 ];
 
 const STATUS: Record<string, string> = {
@@ -35,6 +39,7 @@ function celula(c: Coluna, m: Metricas, moeda: string) {
   const v = m[c.chave];
   if (c.formato === 'dinheiro') return dinheiro(v, moeda);
   if (c.formato === 'percentual') return percentual(v);
+  if (c.formato === 'vezes') return vezes(v);
   return inteiro(v);
 }
 

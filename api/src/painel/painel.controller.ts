@@ -1,5 +1,6 @@
 import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
-import { IsOptional, IsString, IsUUID, Length, Matches } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsIn, IsInt, IsOptional, IsString, IsUUID, Length, Matches, Max, Min } from 'class-validator';
 import { ChaveContaGuard, Papeis, RequisicaoDaConta } from '../contas/chave-conta.guard';
 import { PainelService } from './painel.service';
 
@@ -19,6 +20,23 @@ export class FiltroDto {
   @Length(1, 40)
   @Matches(/^\d+$/)
   campanha?: string;
+}
+
+export class FiltroLeadsDto extends FiltroDto {
+  @IsOptional()
+  @IsIn(['ctwa', 'formulario', 'link', 'organico'])
+  origem?: string;
+
+  @IsOptional()
+  @IsIn(['novo', 'em_atendimento', 'qualificado', 'venda', 'descartado'])
+  etapa?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  pagina?: number;
 }
 
 /** Uma rota por aba: a extensão tem 30 chamadas por minuto no omni.http.request. */
@@ -46,5 +64,15 @@ export class PainelController {
   @Get('criativos')
   criativos(@Req() req: RequisicaoDaConta, @Query() filtro: FiltroDto) {
     return this.painel.criativos(req.conta.id, filtro);
+  }
+
+  @Get('leads')
+  leads(@Req() req: RequisicaoDaConta, @Query() filtro: FiltroLeadsDto) {
+    return this.painel.leads(req.conta.id, filtro);
+  }
+
+  @Get('equipe')
+  equipe(@Req() req: RequisicaoDaConta, @Query() filtro: FiltroDto) {
+    return this.painel.equipe(req.conta.id, filtro);
   }
 }

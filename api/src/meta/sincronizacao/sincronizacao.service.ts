@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ContaAnuncio, Prisma } from '@prisma/client';
 import { comoData, diaNoFuso, diasEntre, proximaHoraLocal, somarDias } from '../../comum/datas';
 import { ESPERAR, Esperar } from '../../comum/fetch';
+import { instanteUtc } from '../../comum/sql';
 import { PrismaService } from '../../comum/prisma.service';
 import { ClienteGraph, TokenMeta } from '../cliente/graph';
 import { ErroMeta, LimiteMeta, TokenInvalido } from '../cliente/erros';
@@ -89,12 +90,9 @@ export class SincronizacaoService {
    * e roda as tarefas dela. Devolve false quando não havia nada a fazer.
    */
   async executarProxima(agora = new Date()): Promise<boolean> {
-    // As colunas do Prisma são timestamp SEM fuso, gravadas em UTC: o instante vai convertido para UTC
-    // explicitamente, senão a comparação dependeria do fuso da sessão do Postgres.
-    const utc = (d: Date) => Prisma.sql`(${d.toISOString()}::timestamptz AT TIME ZONE 'UTC')`;
-    const t = utc(agora);
+    const t = instanteUtc(agora);
     const linhas = await this.prisma.$queryRaw<{ id: string }[]>`
-      UPDATE contas_anuncio SET em_execucao_ate = ${utc(new Date(agora.getTime() + TRAVA_MIN * MIN))}
+      UPDATE contas_anuncio SET em_execucao_ate = ${instanteUtc(new Date(agora.getTime() + TRAVA_MIN * MIN))}
       WHERE id = (
         SELECT ca.id FROM contas_anuncio ca
         JOIN conexoes_meta cm ON cm.conta_id = ca.conta_id AND cm.status = 'ativa'

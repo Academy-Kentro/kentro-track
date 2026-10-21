@@ -119,8 +119,9 @@ export class ClienteGraph {
     return this.chamar<T>('GET', token, caminho, params, ctx);
   }
 
-  post<T>(token: TokenMeta, caminho: string, params: Parametros, ctx: ContextoChamada): Promise<T> {
-    return this.chamar<T>('POST', token, caminho, params, ctx);
+  /** POST com os parâmetros na URL e, se houver, um corpo JSON (ex.: os eventos da API de Conversões). */
+  post<T>(token: TokenMeta, caminho: string, params: Parametros, ctx: ContextoChamada, corpo?: unknown): Promise<T> {
+    return this.chamar<T>('POST', token, caminho, params, ctx, corpo);
   }
 
   /** Lista paginada por cursor (`after`), com teto de páginas para não varrer sem fim. */
@@ -155,7 +156,7 @@ export class ClienteGraph {
     return `${BASE_GRAPH}/${this.opcoes.versao}/${caminho.replace(/^\/+/, '')}${consulta ? `?${consulta}` : ''}`;
   }
 
-  private async chamar<T>(metodo: 'GET' | 'POST', token: TokenMeta, caminho: string, params: Parametros, ctx: ContextoChamada): Promise<T> {
+  private async chamar<T>(metodo: 'GET' | 'POST', token: TokenMeta, caminho: string, params: Parametros, ctx: ContextoChamada, corpo?: unknown): Promise<T> {
     const url = this.montarUrl(token, caminho, params);
     let ultimo: ErroMeta = new MetaIndisponivel('O Meta não respondeu.');
     for (let tentativa = 1; tentativa <= MAX_TENTATIVAS; tentativa++) {
@@ -166,23 +167,24 @@ export class ClienteGraph {
         // O token vai no cabeçalho, não na URL: assim não aparece em log de proxy nem de erro.
         const resposta = await this.opcoes.fetch(url, {
           method: metodo,
-          headers: { Authorization: `Bearer ${token.valor}` },
+          headers: { Authorization: `Bearer ${token.valor}`, ...(corpo === undefined ? {} : { 'Content-Type': 'application/json' }) },
+          body: corpo === undefined ? undefined : JSON.stringify(corpo),
           signal: AbortSignal.timeout(this.opcoes.tempoLimiteMs ?? 15_000),
         });
         status = resposta.status;
         uso = lerUso(resposta.headers);
         const texto = await resposta.text();
-        let corpo: unknown;
+        let json: unknown;
         try {
-          corpo = texto ? JSON.parse(texto) : {};
+          json = texto ? JSON.parse(texto) : {};
         } catch {
-          corpo = {};
+          json = {};
         }
-        if (resposta.ok && !(corpo as CorpoErro).error) {
+        if (resposta.ok && !(json as CorpoErro).error) {
           this.registrar({ ...ctx, statusHttp: status, ms: Date.now() - inicio, erroCodigo: null, uso });
-          return corpo as T;
+          return json as T;
         }
-        ultimo = classificar(status, corpo as CorpoErro, uso);
+        ultimo = classificar(status, json as CorpoErro, uso);
       } catch (e) {
         ultimo = e instanceof ErroMeta ? e : new MetaIndisponivel('Não foi possível falar com o Meta (rede ou tempo limite).');
       }

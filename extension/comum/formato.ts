@@ -35,6 +35,12 @@ export function percentual(valor: number | null | undefined, casas = 2): string 
   return `${valor.toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas })}%`;
 }
 
+/** ROAS: "3,25x". */
+export function vezes(valor: number | null | undefined): string {
+  if (valor == null || !Number.isFinite(valor)) return TRACO;
+  return `${valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}x`;
+}
+
 /** "2026-10-21" → "21/10". */
 export function diaCurto(dia: string): string {
   const [, m, d] = dia.split('-');

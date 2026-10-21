@@ -2,7 +2,11 @@ import { Module } from '@nestjs/common';
 import { ConfigApp, CONFIG_APP } from '../comum/config';
 import { ESPERAR, Esperar, Fetch, FETCH } from '../comum/fetch';
 import { PrismaService } from '../comum/prisma.service';
+import { CapiController } from '../capi/capi.controller';
+import { CapiService } from '../capi/capi.service';
 import { ContasModule } from '../contas/contas.module';
+import { AtendimentoController, KentroController } from '../leads/leads.controller';
+import { LeadsService } from '../leads/leads.service';
 import { MidiaController } from '../painel/midia.controller';
 import { PainelController } from '../painel/painel.controller';
 import { PainelService } from '../painel/painel.service';
@@ -14,7 +18,7 @@ import { SincronizacaoService } from './sincronizacao/sincronizacao.service';
 
 @Module({
   imports: [ContasModule],
-  controllers: [MetaController, PainelController, MidiaController],
+  controllers: [MetaController, PainelController, MidiaController, AtendimentoController, KentroController, CapiController],
   providers: [
     {
       provide: ClienteGraph,
@@ -43,6 +47,8 @@ import { SincronizacaoService } from './sincronizacao/sincronizacao.service';
     SincronizacaoService,
     AgendaSincronizacao,
     PainelService,
+    LeadsService,
+    CapiService,
   ],
   exports: [ClienteGraph, ConexaoService, SincronizacaoService],
 })

@@ -60,6 +60,13 @@ export interface Metricas {
   cpm: number | null;
   cpl: number | null;
   custoPorConversa: number | null;
+  entradas: number;
+  qualificados: number;
+  vendas: number;
+  receita: number;
+  roas: number | null;
+  custoPorVenda: number | null;
+  taxaVenda: number | null;
 }
 
 interface Situacao {
@@ -72,6 +79,7 @@ export interface VisaoGeral extends Situacao {
   periodo: { de: string; ate: string };
   anterior: { de: string; ate: string; metricas: Metricas } | null;
   metricas: Metricas;
+  organicos: number;
   serie: { data: string; investimento: number; leads: number; conversas: number; impressoes: number; cliquesLink: number }[];
   contasAnuncio: number;
 }

@@ -312,3 +312,159 @@ describe('formatos e utilidades', () => {
     expect(periodo('mesPassado', new Date(2026, 0, 10))).toEqual({ de: '2025-12-01', ate: '2025-12-31' });
   });
 });
+
+describe('gestão: funil do atendimento, leads, equipe e integração', () => {
+  const COM_FUNIL = { ...VISAO, organicos: 3, metricas: metricas({ entradas: 40, qualificados: 20, vendas: 8, receita: 6000, roas: 4, custoPorVenda: 187.5, taxaVenda: 20 }) };
+  const LEADS = {
+    pagina: 1,
+    temMais: true,
+    porEtapa: { venda: 1, novo: 1 },
+    itens: [
+      { id: 'l1', origem: 'ctwa', etapa: 'venda', nome: 'Maria', telefone: '(38) 9****-0000', chatId: '501', recebidoEm: '2026-10-10T16:00:00Z', atendente: 'Ana', valorVenda: 3000, campanha: 'Black Friday', anuncio: 'Vídeo', vinculoAproximado: true },
+      { id: 'l2', origem: 'organico', etapa: 'novo', nome: null, telefone: null, chatId: null, recebidoEm: '2026-10-11T16:00:00Z', atendente: null, valorVenda: null, campanha: null, anuncio: null, vinculoAproximado: false },
+    ],
+  };
+
+  it('visão geral mostra receita, ROAS e o funil do anúncio à venda', async () => {
+    await montar({ http: api({ '/v1/conta': CONTA, '/v1/painel/filtros': FILTROS, '/v1/painel/visao-geral': COM_FUNIL }) });
+    expect(texto()).toContain('No atendimento');
+    expect(texto()).toContain('4,00x');
+    expect(texto()).toContain('Mais 3 atendimentos sem anúncio');
+    const funil = [...raiz.querySelectorAll('.kt-funil-tabela tr')].map((tr) => tr.textContent?.replace(/\s+/g, ' ').trim());
+    // Leads do Meta 60 → 40 no atendimento (67%) → 20 (50%) → 8 (40%)
+    expect(funil).toEqual(['Leads no Meta60', 'Chegaram ao atendimento4067%', 'Qualificados2050%', 'Vendas840%']);
+  });
+
+  it('sem leads no atendimento, explica como ligar a integração em vez de mostrar zeros', async () => {
+    await montar({ http: api({ '/v1/conta': CONTA, '/v1/painel/filtros': FILTROS, '/v1/painel/visao-geral': { ...VISAO, organicos: 0, metricas: metricas({ entradas: 0 }) } }) });
+    expect(texto()).toContain('Nenhum lead de anúncio chegou ao atendimento');
+    expect(raiz.querySelector('.kt-funil')).toBeNull();
+  });
+
+  it('aba Leads: filtra por etapa, pagina e abre a conversa na Kentro', async () => {
+    const falso = await montar({ http: api({ '/v1/conta': CONTA, '/v1/painel/filtros': FILTROS, '/v1/painel/leads': LEADS }) });
+    await clicar(botao('Leads'));
+    expect(texto()).toContain('Maria · (38) 9****-0000');
+    expect(texto()).toContain('Black Friday › Vídeo *');
+    await clicar(botao('Vendas ('));
+    expect(new URL(falso.chamadas.at(-1)!.url).searchParams.get('etapa')).toBe('venda');
+    await clicar(botao('Próximos'));
+    expect(new URL(falso.chamadas.at(-1)!.url).searchParams.get('pagina')).toBe('2');
+    await clicar(botao('Abrir conversa'));
+    expect(falso.selecionados).toEqual([501]);
+  });
+
+  it('aba Equipe: por atendente', async () => {
+    await montar({
+      http: api({
+        '/v1/conta': CONTA,
+        '/v1/painel/filtros': FILTROS,
+        '/v1/painel/equipe': { moeda: 'BRL', atendentes: [{ id: '7', nome: 'Ana', entradas: 10, qualificados: 5, vendas: 2, descartados: 3, receita: 4000, taxaVenda: 20, minutosAteAtender: 95 }] },
+      }),
+    });
+    await clicar(botao('Equipe'));
+    const linha = raiz.querySelector('tbody tr')!.textContent!.replace(/\s+/g, ' ');
+    expect(linha).toContain('Ana');
+    expect(linha).toContain('20,0%');
+    expect(linha).toContain('1,6 h');
+  });
+
+  it('Configurações mostra a URL da integração com os corpos de exemplo', async () => {
+    const integracao = {
+      url: 'https://track.teste/v1/kentro/eventos/c1.ASSINATURA',
+      exemplos: { chat_iniciado: { evento: 'chat_iniciado', chatId: '{{chat_id}}' }, qualificado: {}, venda: {}, descartado: {} },
+    };
+    await montar({
+      http: api({ '/v1/conta': CONTA, '/v1/painel/filtros': FILTROS, '/v1/painel/visao-geral': VISAO, '/v1/meta/conexao': { conectado: false, loginMetaDisponivel: false, contasAnuncio: [] }, '/v1/kentro/integracao': integracao }),
+    });
+    await clicar(botao('Configurações'));
+    expect(texto()).toContain('Integração com o atendimento');
+    expect(texto()).toContain('https://track.teste/v1/kentro/eventos/c1.ASSINATURA');
+    expect(texto()).toContain('"evento": "chat_iniciado"');
+  });
+});
+
+describe('gestão: eventos para o Meta', () => {
+  const CONFIG = {
+    ativo: false,
+    datasetId: null,
+    datasetNome: null,
+    tokenProprio: false,
+    wabaId: null,
+    codigoTeste: null,
+    mapeamento: { lead_recebido: 'Lead', qualificado: 'QualifiedLead', venda: 'Purchase', descartado: null },
+  };
+  const ENVIOS = {
+    ultimos30Dias: { enviado: 12, erro: 1 },
+    envios: [{ id: '9', gatilho: 'venda', evento: 'Purchase', status: 'erro', teste: false, tentativas: 2, erro: 'Invalid parameter', lead: 'Maria', criadoEm: '2026-10-23T12:00:00Z', enviadoEm: null }],
+  };
+
+  async function abrir(extra: (c: ChamadaHttp) => unknown = () => undefined) {
+    const falso = await montar({
+      http: (c) => {
+        const caminho = new URL(c.url).pathname;
+        const r = extra(c);
+        if (r !== undefined) return ok(r);
+        const rotas: Record<string, unknown> = {
+          '/v1/conta': CONTA,
+          '/v1/painel/filtros': FILTROS,
+          '/v1/painel/visao-geral': VISAO,
+          '/v1/meta/conexao': { conectado: false, loginMetaDisponivel: false, contasAnuncio: [] },
+          '/v1/kentro/integracao': { url: 'https://x', exemplos: { chat_iniciado: {}, qualificado: {}, venda: {}, descartado: {} } },
+          '/v1/eventos/configuracao': CONFIG,
+          '/v1/eventos/envios': ENVIOS,
+          '/v1/eventos/pixels': { pixels: [{ id: '555666777', nome: 'Pixel Loja', ultimoDisparo: '2026-10-22T10:00:00+0000', contaAnuncio: 'Loja Principal' }] },
+          '/v1/eventos/testar': { ok: true, eventosRecebidos: 1, evento: 'Lead' },
+          '/v1/eventos/envios/9/reenviar': { ...ENVIOS, envios: [{ ...ENVIOS.envios[0], status: 'pendente' }] },
+        };
+        return caminho in rotas ? ok(rotas[caminho]) : erro(404, 'NAO_ENCONTRADO', caminho);
+      },
+    });
+    await clicar(botao('Configurações'));
+    return falso;
+  }
+
+  it('escolhe o pixel da lista, liga o envio, muda o evento da venda e salva só o que mudou', async () => {
+    const falso = await abrir();
+    expect(texto()).toContain('desligue a outra no mesmo dia');
+    await clicar(botao('Buscar pixels'));
+    await clicar(botao('Pixel Loja'));
+    const ativo = [...raiz.querySelectorAll('.kt-alternar input')][0] as HTMLInputElement;
+    await act(async () => {
+      ativo.click();
+    });
+    const venda = [...raiz.querySelectorAll('.kt-mapeamento tr')].find((tr) => tr.textContent?.startsWith('Venda'))!.querySelector('select')!;
+    await act(async () => {
+      venda.value = 'CompleteRegistration';
+      venda.dispatchEvent(new Event('change'));
+    });
+    await clicar(botao('Salvar'));
+    const put = falso.chamadas.find((c) => c.method === 'PUT' && c.url.endsWith('/v1/eventos/configuracao'))!;
+    expect(put.corpo).toEqual({
+      datasetId: '555666777',
+      datasetNome: 'Pixel Loja',
+      ativo: true,
+      mapeamento: { lead_recebido: 'Lead', qualificado: 'QualifiedLead', venda: 'CompleteRegistration', descartado: null },
+    });
+  });
+
+  it('evento de teste com o código digitado', async () => {
+    const falso = await abrir((c) => (c.url.endsWith('/v1/eventos/configuracao') && c.method === 'GET' ? { ...CONFIG, datasetId: '555666777' } : undefined));
+    const campo = [...raiz.querySelectorAll('.kt-campo')].find((l) => l.textContent?.includes('Código de teste'))!.querySelector('input')!;
+    await act(async () => {
+      campo.value = 'TEST77';
+      campo.dispatchEvent(new Event('input'));
+    });
+    await clicar(botao('Enviar evento de teste'));
+    expect(falso.chamadas.find((c) => c.url.endsWith('/v1/eventos/testar'))?.corpo).toEqual({ codigoTeste: 'TEST77' });
+  });
+
+  it('lista os últimos envios e reenvia o que deu erro', async () => {
+    const falso = await abrir();
+    expect(texto()).toContain('12 recebidos');
+    expect(texto()).toContain('Invalid parameter');
+    await clicar(botao('Reenviar'));
+    expect(falso.chamadas.some((c) => c.method === 'POST' && c.url.endsWith('/v1/eventos/envios/9/reenviar'))).toBe(true);
+    expect(texto()).toContain('Na fila');
+  });
+});

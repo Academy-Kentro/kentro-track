@@ -50,6 +50,14 @@ export function Criativos({ carga }: { carga: Carga<Dados> }) {
                       <dt>CTR</dt>
                       <dd>{percentual(c.metricas.ctr)}</dd>
                     </div>
+                    <div>
+                      <dt>Vendas</dt>
+                      <dd>{inteiro(c.metricas.vendas)}</dd>
+                    </div>
+                    <div>
+                      <dt>Custo por venda</dt>
+                      <dd>{dinheiro(c.metricas.custoPorVenda, dados.moeda)}</dd>
+                    </div>
                   </dl>
                 </div>
               </article>

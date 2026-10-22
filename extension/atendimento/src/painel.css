@@ -14,6 +14,9 @@ body { background: var(--kt-fundo); }
 .kt-trilha, .kt-aproximado { display: flex; align-items: flex-start; gap: 6px; font-size: .8em; margin: 4px 0 0; }
 .kt-trilha { color: var(--ext-color-text-muted); padding-top: 8px; border-top: 1px solid var(--kt-linha); }
 .kt-trilha .kt-icone, .kt-aproximado .kt-icone { margin-top: 2px; }
+.kt-trilha dl { margin: 0; display: grid; gap: 3px; }
+.kt-trilha dt { display: inline; font-weight: 600; color: var(--ext-color-text); }
+.kt-trilha dd { display: inline; margin: 0; }
 .kt-aproximado { color: var(--kt-aviso-cor); background: var(--kt-aviso-suave); padding: 6px 8px; border-radius: 8px; }
 
 .kt-respostas { margin: 12px 0 0; display: grid; gap: 8px; padding-top: 10px; border-top: 1px solid var(--kt-linha); }

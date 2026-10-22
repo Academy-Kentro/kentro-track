@@ -12,11 +12,8 @@ export type Preset =
   | 'ultimos14'
   | 'ultimos30'
   | 'ultimos90'
-  | 'ultimos180'
-  | 'ultimos365'
   | 'mes'
   | 'mesPassado'
-  | 'ano'
   | 'personalizado';
 
 export const PRESETS: { id: Preset; rotulo: string }[] = [
@@ -26,16 +23,13 @@ export const PRESETS: { id: Preset; rotulo: string }[] = [
   { id: 'ultimos14', rotulo: 'Últimos 14 dias' },
   { id: 'ultimos30', rotulo: 'Últimos 30 dias' },
   { id: 'ultimos90', rotulo: 'Últimos 90 dias' },
-  { id: 'ultimos180', rotulo: 'Últimos 6 meses' },
-  { id: 'ultimos365', rotulo: 'Últimos 12 meses' },
   { id: 'mes', rotulo: 'Este mês' },
   { id: 'mesPassado', rotulo: 'Mês passado' },
-  { id: 'ano', rotulo: 'Este ano' },
   { id: 'personalizado', rotulo: 'Personalizado…' },
 ];
 
-/** O mesmo teto da API (MAX_DIAS no painel). */
-export const MAX_DIAS_PERIODO = 400;
+/** O Kentro Track carrega 90 dias do Meta ao conectar (DIAS_CARGA): o período não volta além disso. */
+export const MAX_DIAS_PERIODO = 90;
 
 export interface Filtro {
   preset: Preset;
@@ -64,16 +58,10 @@ export function periodo(preset: Preset, hoje = new Date()): { de: string; ate: s
       return { de: dia(menos(13)), ate: dia(h) };
     case 'ultimos90':
       return { de: dia(menos(89)), ate: dia(h) };
-    case 'ultimos180':
-      return { de: dia(menos(179)), ate: dia(h) };
-    case 'ultimos365':
-      return { de: dia(menos(364)), ate: dia(h) };
     case 'mes':
       return { de: dia(new Date(h.getFullYear(), h.getMonth(), 1)), ate: dia(h) };
     case 'mesPassado':
       return { de: dia(new Date(h.getFullYear(), h.getMonth() - 1, 1)), ate: dia(new Date(h.getFullYear(), h.getMonth(), 0)) };
-    case 'ano':
-      return { de: dia(new Date(h.getFullYear(), 0, 1)), ate: dia(h) };
     default:
       return { de: dia(menos(29)), ate: dia(h) };
   }
@@ -82,7 +70,8 @@ export function periodo(preset: Preset, hoje = new Date()): { de: string; ate: s
 /** O período em vigor: as datas escolhidas no personalizado, ou as do preset. */
 export function intervalo(filtro: Filtro, hoje = new Date()): { de: string; ate: string } {
   if (filtro.preset === 'personalizado' && filtro.de && filtro.ate && DIA.test(filtro.de) && DIA.test(filtro.ate) && filtro.de <= filtro.ate) {
-    return { de: filtro.de, ate: filtro.ate };
+    // Guardado há dias: o início pode ter saído da janela de 90 dias.
+    return datasPersonalizadas(filtro.de, filtro.ate, 'ate', hoje);
   }
   return periodo(filtro.preset === 'personalizado' ? 'ultimos30' : filtro.preset, hoje);
 }
@@ -95,22 +84,20 @@ export function consulta(filtro: Filtro): string {
   return q.toString();
 }
 
-/** Ajusta as datas do personalizado: fim nunca antes do início, nada depois de hoje, no máximo o teto da API. */
+/** Primeiro dia que o personalizado aceita: hoje e os 89 anteriores. */
+export function primeiroDia(hoje = new Date()): string {
+  return dia(new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() - (MAX_DIAS_PERIODO - 1)));
+}
+
+/** Ajusta as datas do personalizado: dentro dos últimos 90 dias e fim nunca antes do início. */
 export function datasPersonalizadas(de: string, ate: string, mexeu: 'de' | 'ate', hoje = new Date()): { de: string; ate: string } {
-  const h = dia(hoje);
-  const somar = (d: string, n: number) => {
-    const [a, m, x] = d.split('-').map(Number);
-    return dia(new Date(a, m - 1, x + n));
-  };
-  let d = de > h ? h : de;
-  let a = ate > h ? h : ate;
+  const [min, max] = [primeiroDia(hoje), dia(hoje)];
+  const limitar = (d: string) => (d < min ? min : d > max ? max : d);
+  let d = limitar(de);
+  let a = limitar(ate);
   if (d > a) {
     if (mexeu === 'de') a = d;
     else d = a;
-  }
-  if (somar(d, MAX_DIAS_PERIODO - 1) < a) {
-    if (mexeu === 'de') a = somar(d, MAX_DIAS_PERIODO - 1);
-    else d = somar(a, -(MAX_DIAS_PERIODO - 1));
   }
   return { de: d, ate: a };
 }
@@ -131,7 +118,7 @@ export function Seletor({ icone, rotulo, valor, mudar, children }: { icone: Nome
 /** Início e fim do personalizado com o calendário do navegador. */
 function Datas({ filtro, mudar }: { filtro: Filtro; mudar: (f: Filtro) => void }) {
   const { de, ate } = intervalo(filtro);
-  const hoje = dia(new Date());
+  const [min, hoje] = [primeiroDia(), dia(new Date())];
   const trocar = (campo: 'de' | 'ate', valor: string) => {
     if (!DIA.test(valor)) return;
     mudar({ ...filtro, ...datasPersonalizadas(campo === 'de' ? valor : de, campo === 'ate' ? valor : ate, campo) });
@@ -140,14 +127,14 @@ function Datas({ filtro, mudar }: { filtro: Filtro; mudar: (f: Filtro) => void }
     <div class="kt-datas" role="group" aria-label="Datas do período">
       <label class="kt-data">
         <span class="kt-invisivel">De</span>
-        <input type="date" value={de} max={hoje} onChange={(e) => trocar('de', (e.target as HTMLInputElement).value)} />
+        <input type="date" value={de} min={min} max={hoje} onChange={(e) => trocar('de', (e.target as HTMLInputElement).value)} />
       </label>
       <span class="kt-muted" aria-hidden="true">
         até
       </span>
       <label class="kt-data">
         <span class="kt-invisivel">Até</span>
-        <input type="date" value={ate} max={hoje} onChange={(e) => trocar('ate', (e.target as HTMLInputElement).value)} />
+        <input type="date" value={ate} min={min} max={hoje} onChange={(e) => trocar('ate', (e.target as HTMLInputElement).value)} />
       </label>
     </div>
   );

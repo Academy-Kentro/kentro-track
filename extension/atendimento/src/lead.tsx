@@ -50,6 +50,26 @@ const MOTIVOS = ['Sem interesse', 'Sem orçamento', 'Não respondeu', 'Fora do p
 
 const ICONE_ORIGEM: Record<LeadPainel['origem'], NomeIcone> = { ctwa: 'megafone', formulario: 'formulario', link: 'link', organico: 'mensagem' };
 
+/**
+ * Campanha, conjunto e anúncio com rótulo. Muitos clientes dão o mesmo nome aos três: níveis
+ * seguidos com o mesmo nome viram uma linha só ("Campanha, conjunto e anúncio").
+ */
+export function niveis(lista: [string, string | null | undefined][]): { rotulo: string; nome: string }[] {
+  const grupos: { rotulos: string[]; nome: string }[] = [];
+  for (const [rotulo, nome] of lista) {
+    if (!nome) continue;
+    const ultimo = grupos.at(-1);
+    if (ultimo && ultimo.nome.trim() === nome.trim()) ultimo.rotulos.push(rotulo);
+    else grupos.push({ rotulos: [rotulo], nome });
+  }
+  return grupos.map((g) => {
+    const [primeiro, ...resto] = g.rotulos;
+    const demais = resto.map((r) => r.toLowerCase());
+    const juntos = demais.length === 0 ? primeiro : `${[primeiro, ...demais.slice(0, -1)].join(', ')} e ${demais.at(-1)}`;
+    return { rotulo: juntos, nome: g.nome };
+  });
+}
+
 function Miniatura({ url }: { url: string | null }) {
   const [falhou, setFalhou] = useState(false);
   if (!url || falhou) return null;
@@ -79,14 +99,20 @@ export function Origem({ lead }: { lead: LeadPainel }) {
           {titulo && <h3>{titulo}</h3>}
           {texto && <p class="kt-anuncio-texto">{texto}</p>}
           {a.campanha?.nome ? (
-            <p class="kt-trilha" title="Campanha › conjunto › anúncio">
+            <div class="kt-trilha">
               <Icone nome="megafone" tamanho={12} />
-              <span>
-                {a.campanha.nome}
-                {a.conjunto && ` › ${a.conjunto.nome}`}
-                {a.anuncio && ` › ${a.anuncio.nome}`}
-              </span>
-            </p>
+              <dl>
+                {niveis([
+                  ['Campanha', a.campanha.nome],
+                  ['Conjunto', a.conjunto?.nome],
+                  ['Anúncio', a.anuncio?.nome],
+                ]).map((n) => (
+                  <div key={n.rotulo}>
+                    <dt>{n.rotulo}:</dt> <dd>{n.nome}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
           ) : (
             <p class="kt-muted kt-trilha">
               <Icone nome="info" tamanho={12} />

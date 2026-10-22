@@ -5,7 +5,7 @@
 import { render } from 'preact';
 import { act } from 'preact/test-utils';
 import { App } from '../../../extension/atendimento/src/app';
-import type { LeadPainel } from '../../../extension/atendimento/src/lead';
+import { niveis, type LeadPainel } from '../../../extension/atendimento/src/lead';
 import type { CtxOmni } from '../../../extension/comum/omni';
 import { assentar, ChamadaHttp, erro, ok, omniFalso, OpcoesFalso } from './omni-falso';
 
@@ -105,15 +105,29 @@ describe('painel do atendimento', () => {
     expect(falso.chamadas).toHaveLength(2);
   });
 
-  it('mostra a origem: campanha › conjunto › anúncio, o texto, o aviso de ligação aproximada e outras entradas', async () => {
+  it('mostra a origem: campanha, conjunto e anúncio com rótulo, o texto, o aviso de ligação aproximada e outras entradas', async () => {
     await montar(CONVERSA);
     expect(texto()).toContain('Veio de um anúncio');
-    expect(texto()).toContain('Black Friday › Público quente › Vídeo depoimento');
+    const trilha = [...raiz.querySelectorAll('.kt-trilha dl > div')].map((d) => d.textContent);
+    expect(trilha).toEqual(['Campanha: Black Friday', 'Conjunto: Público quente', 'Anúncio: Vídeo depoimento']);
     expect(texto()).toContain('Chame no WhatsApp');
     expect(texto()).toContain('identificado pelo texto');
     expect(raiz.querySelector('img.kt-anuncio-imagem')?.getAttribute('src')).toBe('https://track.teste/m/x.y');
     expect(texto()).toContain('Outras vezes que este contato chegou');
     expect(texto()).toContain('Inverno');
+  });
+
+  it('níveis com o mesmo nome viram uma linha só', () => {
+    const nome = '[WT- CE]21-10[ HNM9C51] Hyundai I30 2.0 - 2010';
+    expect(niveis([['Campanha', nome], ['Conjunto', nome], ['Anúncio', nome]])).toEqual([{ rotulo: 'Campanha, conjunto e anúncio', nome }]);
+    expect(niveis([['Campanha', 'Feirão'], ['Conjunto', nome], ['Anúncio', nome]])).toEqual([
+      { rotulo: 'Campanha', nome: 'Feirão' },
+      { rotulo: 'Conjunto e anúncio', nome },
+    ]);
+    expect(niveis([['Campanha', 'Feirão'], ['Conjunto', null], ['Anúncio', 'Vídeo']])).toEqual([
+      { rotulo: 'Campanha', nome: 'Feirão' },
+      { rotulo: 'Anúncio', nome: 'Vídeo' },
+    ]);
   });
 
   it('registra a venda com o valor digitado em reais', async () => {

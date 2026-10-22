@@ -8,7 +8,7 @@ import { mensagemDeErro } from '../../../extension/comum/api';
 import { dinheiro, percentual, variacao } from '../../../extension/comum/formato';
 import type { CtxOmni } from '../../../extension/comum/omni';
 import { App } from '../../../extension/gestao/src/app';
-import { datasPersonalizadas, intervalo, periodo } from '../../../extension/gestao/src/filtro';
+import { datasPersonalizadas, intervalo, periodo, primeiroDia } from '../../../extension/gestao/src/filtro';
 import { tetoRedondo } from '../../../extension/gestao/src/graficos';
 import { assentar, ChamadaHttp, erro, ok, omniFalso, OpcoesFalso } from './omni-falso';
 
@@ -170,21 +170,24 @@ describe('gestão: visão geral', () => {
     });
     await assentar(act);
     const [de, ate] = [...raiz.querySelectorAll('.kt-datas input')] as HTMLInputElement[];
+    // Dentro da janela de 90 dias, qualquer que seja o dia em que o teste roda.
+    const [DE, ATE] = [periodo('ultimos30').de, periodo('ultimos14').de];
     expect([de.value, ate.value]).toEqual([periodo('ultimos30').de, periodo('ultimos30').ate]);
 
     await act(async () => {
-      de.value = '2026-03-01';
+      de.value = DE;
       de.dispatchEvent(new Event('change'));
     });
     await assentar(act);
     await act(async () => {
-      ate.value = '2026-03-15';
+      ate.value = ATE;
       ate.dispatchEvent(new Event('change'));
     });
     await assentar(act);
     const ultima = new URL(falso.chamadas.filter((c) => c.url.includes('/visao-geral')).at(-1)!.url);
-    expect([ultima.searchParams.get('de'), ultima.searchParams.get('ate')]).toEqual(['2026-03-01', '2026-03-15']);
-    expect(falso.armazenamento.get('filtro')).toMatchObject({ preset: 'personalizado', de: '2026-03-01', ate: '2026-03-15' });
+    expect([ultima.searchParams.get('de'), ultima.searchParams.get('ate')]).toEqual([DE, ATE]);
+    expect(falso.armazenamento.get('filtro')).toMatchObject({ preset: 'personalizado', de: DE, ate: ATE });
+    expect(de.min).toBe(primeiroDia());
   });
 });
 
@@ -341,16 +344,16 @@ describe('formatos e utilidades', () => {
     expect(periodo('mesPassado', new Date(2026, 0, 10))).toEqual({ de: '2025-12-01', ate: '2025-12-31' });
     expect(periodo('hoje', hoje)).toEqual({ de: '2026-10-21', ate: '2026-10-21' });
     expect(periodo('ontem', new Date(2026, 9, 1))).toEqual({ de: '2026-09-30', ate: '2026-09-30' });
-    expect(periodo('ultimos365', hoje)).toEqual({ de: '2025-10-22', ate: '2026-10-21' });
-    expect(periodo('ano', hoje)).toEqual({ de: '2026-01-01', ate: '2026-10-21' });
   });
 
-  it('personalizado: fim nunca antes do início, nada depois de hoje e no máximo 400 dias', () => {
+  it('personalizado: só os últimos 90 dias e fim nunca antes do início', () => {
     const hoje = new Date(2026, 9, 21);
+    expect(primeiroDia(hoje)).toBe('2026-07-24');
     expect(datasPersonalizadas('2026-10-10', '2026-10-01', 'de', hoje)).toEqual({ de: '2026-10-10', ate: '2026-10-10' });
     expect(datasPersonalizadas('2026-10-10', '2026-10-01', 'ate', hoje)).toEqual({ de: '2026-10-01', ate: '2026-10-01' });
     expect(datasPersonalizadas('2026-10-01', '2026-12-31', 'ate', hoje)).toEqual({ de: '2026-10-01', ate: '2026-10-21' });
-    expect(datasPersonalizadas('2024-01-01', '2026-10-21', 'de', hoje)).toEqual({ de: '2024-01-01', ate: '2025-02-03' });
+    expect(datasPersonalizadas('2024-01-01', '2026-08-10', 'de', hoje)).toEqual({ de: '2026-07-24', ate: '2026-08-10' });
+    expect(intervalo({ preset: 'personalizado', contaAnuncio: '', campanha: '', de: '2026-05-01', ate: '2026-05-10' }, hoje)).toEqual({ de: '2026-07-24', ate: '2026-07-24' });
     // Datas inválidas guardadas: volta para os últimos 30 dias.
     expect(intervalo({ preset: 'personalizado', contaAnuncio: '', campanha: '', de: '2026-10-10', ate: '2026-10-01' }, hoje)).toEqual(periodo('ultimos30', hoje));
   });

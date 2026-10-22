@@ -357,18 +357,45 @@ describe('gestão: funil do atendimento, leads, equipe e integração', () => {
     expect(falso.selecionados).toEqual([501]);
   });
 
-  it('aba Leads: mostra quem está com o atendimento na Kentro e explica por que não abriu', async () => {
+  it('aba Leads: atendimento de outro usuário abre a conversa em modo leitura', async () => {
     const semAtendente = { ...LEADS, itens: [{ ...LEADS.itens[0], atendente: null }] };
-    const falso = await montar({
+    await montar({
       http: api({ '/v1/conta': CONTA, '/v1/painel/filtros': FILTROS, '/v1/painel/leads': semAtendente }),
       atendimentos: [{ id: 501, userId: 7 }],
       usuarios: [{ id: 7, name: 'Bruno' }],
       abre: false,
+      mensagens: [
+        { id: 10, direction: 'in', text: 'Oi, ainda tem o Polo?', at: '2026-10-10T16:00:00Z', userId: null },
+        { id: 11, direction: 'out', text: 'Tem sim!', at: '2026-10-10T16:01:00Z', userId: 7, participantName: 'Bruno' },
+        { id: 12, direction: null, text: null, fileName: 'foto.jpg', at: '2026-10-10T16:02:00Z', userId: 7 },
+      ],
     });
     await clicar(botao('Leads'));
     expect(raiz.querySelector('tbody tr')!.textContent).toContain('Bruno');
     await clicar(botao('Abrir conversa'));
-    expect(falso.toasts.at(-1)).toBe('A Kentro não abriu o atendimento #501, que está com Bruno.');
+    const modal = raiz.querySelector('[role="dialog"]')!;
+    expect(modal.textContent).toContain('só leitura, a conversa está com Bruno');
+    const baloes = [...modal.querySelectorAll('.kt-balao')].map((b) => [b.classList.contains('kt-balao-cliente') ? 'cliente' : 'empresa', b.querySelector('.kt-balao-texto')!.textContent]);
+    expect(baloes).toEqual([
+      ['cliente', 'Oi, ainda tem o Polo?'],
+      ['empresa', 'Tem sim!'],
+      ['empresa', 'Arquivo: foto.jpg'],
+    ]);
+    await clicar(modal.querySelector('[aria-label="Fechar"]')!);
+    expect(raiz.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('filtro de campanhas: ativas antes das pausadas', async () => {
+    const campanhas = [
+      { idMeta: '1', nome: 'Antiga', ativa: false, contaAnuncioId: FILTROS.contasAnuncio[0].id },
+      { idMeta: '2', nome: 'Atual', ativa: true, contaAnuncioId: FILTROS.contasAnuncio[0].id },
+    ];
+    await montar({ http: api({ '/v1/conta': CONTA, '/v1/painel/filtros': { ...FILTROS, campanhas }, '/v1/painel/visao-geral': VISAO }) });
+    const grupos = [...raiz.querySelectorAll('optgroup')].map((g) => [g.label, g.textContent]);
+    expect(grupos).toEqual([
+      ['Ativas', 'Atual'],
+      ['Pausadas', 'Antiga (pausada)'],
+    ]);
   });
 
   it('aba Leads: atendimento que o usuário não enxerga nem tenta abrir', async () => {

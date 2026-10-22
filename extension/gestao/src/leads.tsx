@@ -3,6 +3,7 @@ import { Avatar, Aviso, Carregando, Vazio } from '../../comum/componentes';
 import { Icone } from '../../comum/icones';
 import { dinheiro, inteiro, percentual } from '../../comum/formato';
 import { avisar, codigoDoErro, type ChatOmni, type Omni } from '../../comum/omni';
+import { Conversa, type ConversaAberta } from './conversa';
 import { Seletor, type Carga } from './filtro';
 
 export type Etapa = 'novo' | 'em_atendimento' | 'qualificado' | 'venda' | 'descartado';
@@ -103,9 +104,10 @@ function useAtendentesAtuais(omni: Omni, itens: DadosLeads['itens'] | undefined)
 export function Leads({ omni, carga, filtro, mudar }: { omni: Omni; carga: Carga<DadosLeads>; filtro: FiltroLeads; mudar: (f: FiltroLeads) => void }) {
   const { dados, erro, carregando } = carga;
   const atuais = useAtendentesAtuais(omni, dados?.itens);
+  const [vendo, setVendo] = useState<ConversaAberta | null>(null);
 
   // Consulta antes de abrir: o select só diz "não abriu", o get diz se o usuário enxerga o atendimento.
-  const abrirConversa = async (chatId: string, atendente: string | null) => {
+  const abrirConversa = async (chatId: string, nome: string | null, atendente: string | null) => {
     const id = Number(chatId);
     let chat: ChatOmni;
     try {
@@ -120,11 +122,10 @@ export function Leads({ omni, carga, filtro, mudar }: { omni: Omni; carga: Carga
       );
       return;
     }
-    const r: { selected: boolean; codigo?: string } = await omni.chats.select(id).catch((e) => ({ selected: false, codigo: codigoDoErro(e) }));
+    // A tela de chat só abre os atendimentos do próprio usuário: os dos outros, o gestor lê aqui.
+    const r = await omni.chats.select(id).catch(() => ({ selected: false }));
     if (r.selected) return;
-    console.warn('[Kentro Track] a Kentro não abriu o atendimento', { chat, resposta: r });
-    const com = atendente ?? atuais[chatId];
-    avisar(`A Kentro não abriu o atendimento #${id}${com ? `, que está com ${com}` : ''}${r.codigo ? ` (${r.codigo})` : ''}.`, 'error');
+    setVendo({ chatId: chat.id ?? id, titulo: nome ?? 'Sem nome', com: atendente ?? atuais[chatId] ?? null });
   };
 
   return (
@@ -199,7 +200,7 @@ export function Leads({ omni, carga, filtro, mudar }: { omni: Omni; carga: Carga
                     <td class="kt-num">{l.valorVenda == null ? '—' : dinheiro(l.valorVenda)}</td>
                     <td>
                       {l.chatId && (
-                        <button type="button" class="kt-botao kt-botao-fantasma kt-botao-pequeno" onClick={() => abrirConversa(l.chatId!, l.atendente)}>
+                        <button type="button" class="kt-botao kt-botao-fantasma kt-botao-pequeno" onClick={() => abrirConversa(l.chatId!, l.nome, l.atendente)}>
                           <Icone nome="externo" tamanho={13} />
                           Abrir conversa
                         </button>
@@ -222,6 +223,7 @@ export function Leads({ omni, carga, filtro, mudar }: { omni: Omni; carga: Carga
           </div>
         </>
       )}
+      {vendo && <Conversa omni={omni} conversa={vendo} fechar={() => setVendo(null)} />}
     </div>
   );
 }

@@ -32,6 +32,15 @@ export interface MensagemOmni {
   text?: string | null;
   at?: string | number | null;
   ad?: unknown;
+  /** Atendente, automação ou assistente que gravou a mensagem (nulos quando veio do cliente). */
+  userId?: number | null;
+  automationId?: number | null;
+  assistantId?: number | null;
+  participantName?: string | null;
+  transcription?: string | null;
+  fileRef?: string | number | null;
+  fileName?: string | null;
+  deleted?: boolean | null;
 }
 
 export interface RespostaHttp {

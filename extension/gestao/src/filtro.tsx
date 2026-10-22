@@ -87,12 +87,22 @@ export function BarraFiltros({ filtro, opcoes, mudar }: { filtro: Filtro; opcoes
       {campanhas.length > 0 && (
         <Seletor icone="megafone" rotulo="Campanha" valor={filtro.campanha} mudar={(v) => mudar({ ...filtro, campanha: v })}>
           <option value="">Todas as campanhas</option>
-          {campanhas.map((c) => (
-            <option key={c.idMeta} value={c.idMeta}>
-              {c.nome}
-              {c.ativa ? '' : ' (pausada)'}
-            </option>
-          ))}
+          {/* Ativas primeiro: são as que o gestor acompanha no dia a dia. */}
+          {[
+            { rotulo: 'Ativas', itens: campanhas.filter((c) => c.ativa) },
+            { rotulo: 'Pausadas', itens: campanhas.filter((c) => !c.ativa) },
+          ]
+            .filter((g) => g.itens.length > 0)
+            .map((g) => (
+              <optgroup key={g.rotulo} label={g.rotulo}>
+                {g.itens.map((c) => (
+                  <option key={c.idMeta} value={c.idMeta}>
+                    {c.nome}
+                    {c.ativa ? '' : ' (pausada)'}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
         </Seletor>
       )}
       {opcoes?.sincronizadoEm && (

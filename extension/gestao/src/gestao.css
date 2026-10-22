@@ -407,3 +407,37 @@ th[aria-sort] .kt-ordenar { color: var(--ext-color-primary); }
 .kt-calor-legenda { display: flex; align-items: center; gap: 4px; justify-content: flex-end; margin-top: 10px; font-size: .78em; color: var(--ext-color-text-muted); }
 .kt-calor-legenda .kt-calor-celula { width: 16px; height: 12px; }
 .kt-calor-legenda .kt-calor-celula:hover { box-shadow: none; }
+
+/* Conversa em modo leitura (atendimento de outro usuário). */
+.kt-modal-fundo {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: color-mix(in srgb, var(--ext-color-text) 40%, transparent);
+}
+.kt-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(640px, 100%);
+  max-height: min(760px, 100%);
+  background: var(--ext-color-bg);
+  border-radius: var(--kt-r);
+  box-shadow: var(--kt-sombra-alta);
+  overflow: hidden;
+}
+.kt-modal-topo { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--kt-linha); }
+.kt-modal-titulo { margin: 0 0 2px; font-size: 1.05em; }
+.kt-modal-topo .kt-muted { margin: 0; }
+.kt-conversa { display: flex; flex-direction: column; gap: 6px; padding: 16px; overflow-y: auto; background: var(--kt-fundo); min-height: 200px; }
+.kt-conversa-mais { align-self: center; margin-bottom: 8px; }
+.kt-conversa-vazia { text-align: center; padding: 24px 0; }
+.kt-balao { display: flex; flex-direction: column; gap: 2px; max-width: 78%; padding: 8px 10px; border-radius: 10px; box-shadow: var(--kt-sombra); }
+.kt-balao-cliente { align-self: flex-start; background: var(--ext-color-bg); border-top-left-radius: 2px; }
+.kt-balao-empresa { align-self: flex-end; background: var(--kt-suave); border-top-right-radius: 2px; }
+.kt-balao-autor { font-size: .78em; font-weight: 600; color: var(--ext-color-primary); }
+.kt-balao-texto { white-space: pre-wrap; overflow-wrap: anywhere; }
+.kt-balao-hora { align-self: flex-end; font-size: .72em; color: var(--ext-color-text-muted); }

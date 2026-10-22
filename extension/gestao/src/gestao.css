@@ -58,6 +58,21 @@ body { background: var(--kt-fundo); }
 /* ── Filtros ── */
 .kt-filtros { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 22px; }
 .kt-filtros .kt-select { box-shadow: var(--kt-sombra); }
+.kt-datas { display: inline-flex; align-items: center; gap: 8px; }
+.kt-data input {
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--kt-linha-forte);
+  border-radius: var(--kt-r-p);
+  background: var(--ext-color-bg);
+  color: var(--ext-color-text);
+  font: inherit;
+  font-weight: 500;
+  box-shadow: var(--kt-sombra);
+  color-scheme: light dark;
+}
+.kt-data input:hover { border-color: color-mix(in srgb, var(--ext-color-text) 30%, var(--ext-color-bg)); }
+.kt-data input:focus-visible { outline: none; box-shadow: var(--kt-foco); }
 .kt-filtros-estado { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: .85em; color: var(--ext-color-text-muted); }
 
 /* ── Cabeçalho de seção ── */

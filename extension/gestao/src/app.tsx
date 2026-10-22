@@ -7,7 +7,7 @@ import { Analises, DadosAnalises } from './analises';
 import { Campanhas } from './campanhas';
 import { Configuracoes } from './configuracoes';
 import { Criativos } from './criativos';
-import { BarraFiltros, consulta, Filtro, PRESETS, useDados } from './filtro';
+import { BarraFiltros, consulta, Filtro, intervalo, PRESETS, useDados } from './filtro';
 import { DadosEquipe, DadosLeads, Equipe, FiltroLeads, Leads } from './leads';
 import { CHAVES_PENDENTES, PrimeiroUso } from './primeiro-uso';
 import type { Campanhas as DadosCampanhas, Conta, Criativos as DadosCriativos, Filtros, VisaoGeral as DadosVisao } from './tipos';
@@ -42,7 +42,7 @@ function Paineis({ omni, api, conta, aba, irPara }: { omni: Omni; api: Api; cont
     omni.storage.get(FILTRO_SALVO).then(
       (salvo) => {
         const f = salvo as Partial<Filtro> | null;
-        if (f && PRESETS.some((p) => p.id === f.preset)) setFiltro({ ...FILTRO_PADRAO, ...f });
+        if (f && PRESETS.some((p) => p.id === f.preset)) setFiltro({ ...FILTRO_PADRAO, ...f, ...(f.preset === 'personalizado' ? intervalo({ ...FILTRO_PADRAO, ...f }) : {}) });
       },
       () => {},
     );
@@ -55,17 +55,17 @@ function Paineis({ omni, api, conta, aba, irPara }: { omni: Omni; api: Api; cont
 
   const opcoes = useDados<Filtros>(api, '/v1/painel/filtros');
   const pendente = !!opcoes.dados?.cargaPendente;
-  const intervalo = pendente ? ATUALIZAR_NA_CARGA_MS : undefined;
+  const aCada = pendente ? ATUALIZAR_NA_CARGA_MS : undefined;
   // Filtro guardado que aponta para uma conta que saiu da seleção: ignora.
   const valido: Filtro =
     opcoes.dados && filtro.contaAnuncio && !opcoes.dados.contasAnuncio.some((c) => c.id === filtro.contaAnuncio) ? { ...filtro, contaAnuncio: '', campanha: '' } : filtro;
   const q = consulta(valido);
   const pronto = !!opcoes.dados && opcoes.dados.contasAnuncio.length > 0;
 
-  const visao = useDados<DadosVisao>(api, pronto && aba === 'visao' ? `/v1/painel/visao-geral?${q}` : null, intervalo);
-  const analises = useDados<DadosAnalises>(api, pronto && aba === 'analises' ? `/v1/painel/analises?${q}` : null, intervalo);
-  const campanhas = useDados<DadosCampanhas>(api, pronto && aba === 'campanhas' ? `/v1/painel/campanhas?${q}` : null, intervalo);
-  const criativos = useDados<DadosCriativos>(api, pronto && aba === 'criativos' ? `/v1/painel/criativos?${q}` : null, intervalo);
+  const visao = useDados<DadosVisao>(api, pronto && aba === 'visao' ? `/v1/painel/visao-geral?${q}` : null, aCada);
+  const analises = useDados<DadosAnalises>(api, pronto && aba === 'analises' ? `/v1/painel/analises?${q}` : null, aCada);
+  const campanhas = useDados<DadosCampanhas>(api, pronto && aba === 'campanhas' ? `/v1/painel/campanhas?${q}` : null, aCada);
+  const criativos = useDados<DadosCriativos>(api, pronto && aba === 'criativos' ? `/v1/painel/criativos?${q}` : null, aCada);
   const qLeads = new URLSearchParams(q);
   if (filtroLeads.origem) qLeads.set('origem', filtroLeads.origem);
   if (filtroLeads.etapa) qLeads.set('etapa', filtroLeads.etapa);

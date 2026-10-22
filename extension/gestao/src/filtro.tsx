@@ -5,48 +5,114 @@ import { haQuanto } from '../../comum/formato';
 import { Icone, NomeIcone } from '../../comum/icones';
 import type { Filtros } from './tipos';
 
-export type Preset = 'ultimos7' | 'ultimos30' | 'ultimos90' | 'mes' | 'mesPassado';
+export type Preset =
+  | 'hoje'
+  | 'ontem'
+  | 'ultimos7'
+  | 'ultimos14'
+  | 'ultimos30'
+  | 'ultimos90'
+  | 'ultimos180'
+  | 'ultimos365'
+  | 'mes'
+  | 'mesPassado'
+  | 'ano'
+  | 'personalizado';
 
 export const PRESETS: { id: Preset; rotulo: string }[] = [
+  { id: 'hoje', rotulo: 'Hoje' },
+  { id: 'ontem', rotulo: 'Ontem' },
   { id: 'ultimos7', rotulo: 'Últimos 7 dias' },
+  { id: 'ultimos14', rotulo: 'Últimos 14 dias' },
   { id: 'ultimos30', rotulo: 'Últimos 30 dias' },
   { id: 'ultimos90', rotulo: 'Últimos 90 dias' },
+  { id: 'ultimos180', rotulo: 'Últimos 6 meses' },
+  { id: 'ultimos365', rotulo: 'Últimos 12 meses' },
   { id: 'mes', rotulo: 'Este mês' },
   { id: 'mesPassado', rotulo: 'Mês passado' },
+  { id: 'ano', rotulo: 'Este ano' },
+  { id: 'personalizado', rotulo: 'Personalizado…' },
 ];
+
+/** O mesmo teto da API (MAX_DIAS no painel). */
+export const MAX_DIAS_PERIODO = 400;
 
 export interface Filtro {
   preset: Preset;
   contaAnuncio: string;
   campanha: string;
+  /** Só no personalizado: AAAA-MM-DD. */
+  de?: string;
+  ate?: string;
 }
 
 const dia = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const DIA = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Período do preset no relógio de quem está vendo (o mesmo dia que a pessoa chama de "hoje"). */
 export function periodo(preset: Preset, hoje = new Date()): { de: string; ate: string } {
   const h = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
   const menos = (n: number) => new Date(h.getFullYear(), h.getMonth(), h.getDate() - n);
   switch (preset) {
+    case 'hoje':
+      return { de: dia(h), ate: dia(h) };
+    case 'ontem':
+      return { de: dia(menos(1)), ate: dia(menos(1)) };
     case 'ultimos7':
       return { de: dia(menos(6)), ate: dia(h) };
+    case 'ultimos14':
+      return { de: dia(menos(13)), ate: dia(h) };
     case 'ultimos90':
       return { de: dia(menos(89)), ate: dia(h) };
+    case 'ultimos180':
+      return { de: dia(menos(179)), ate: dia(h) };
+    case 'ultimos365':
+      return { de: dia(menos(364)), ate: dia(h) };
     case 'mes':
       return { de: dia(new Date(h.getFullYear(), h.getMonth(), 1)), ate: dia(h) };
     case 'mesPassado':
       return { de: dia(new Date(h.getFullYear(), h.getMonth() - 1, 1)), ate: dia(new Date(h.getFullYear(), h.getMonth(), 0)) };
+    case 'ano':
+      return { de: dia(new Date(h.getFullYear(), 0, 1)), ate: dia(h) };
     default:
       return { de: dia(menos(29)), ate: dia(h) };
   }
 }
 
+/** O período em vigor: as datas escolhidas no personalizado, ou as do preset. */
+export function intervalo(filtro: Filtro, hoje = new Date()): { de: string; ate: string } {
+  if (filtro.preset === 'personalizado' && filtro.de && filtro.ate && DIA.test(filtro.de) && DIA.test(filtro.ate) && filtro.de <= filtro.ate) {
+    return { de: filtro.de, ate: filtro.ate };
+  }
+  return periodo(filtro.preset === 'personalizado' ? 'ultimos30' : filtro.preset, hoje);
+}
+
 export function consulta(filtro: Filtro): string {
-  const { de, ate } = periodo(filtro.preset);
+  const { de, ate } = intervalo(filtro);
   const q = new URLSearchParams({ de, ate });
   if (filtro.contaAnuncio) q.set('contaAnuncio', filtro.contaAnuncio);
   if (filtro.campanha) q.set('campanha', filtro.campanha);
   return q.toString();
+}
+
+/** Ajusta as datas do personalizado: fim nunca antes do início, nada depois de hoje, no máximo o teto da API. */
+export function datasPersonalizadas(de: string, ate: string, mexeu: 'de' | 'ate', hoje = new Date()): { de: string; ate: string } {
+  const h = dia(hoje);
+  const somar = (d: string, n: number) => {
+    const [a, m, x] = d.split('-').map(Number);
+    return dia(new Date(a, m - 1, x + n));
+  };
+  let d = de > h ? h : de;
+  let a = ate > h ? h : ate;
+  if (d > a) {
+    if (mexeu === 'de') a = d;
+    else d = a;
+  }
+  if (somar(d, MAX_DIAS_PERIODO - 1) < a) {
+    if (mexeu === 'de') a = somar(d, MAX_DIAS_PERIODO - 1);
+    else d = somar(a, -(MAX_DIAS_PERIODO - 1));
+  }
+  return { de: d, ate: a };
 }
 
 /** Seletor com ícone e chevron próprios: o <select> nativo continua por baixo (teclado, leitor de tela). */
@@ -62,18 +128,50 @@ export function Seletor({ icone, rotulo, valor, mudar, children }: { icone: Nome
   );
 }
 
+/** Início e fim do personalizado com o calendário do navegador. */
+function Datas({ filtro, mudar }: { filtro: Filtro; mudar: (f: Filtro) => void }) {
+  const { de, ate } = intervalo(filtro);
+  const hoje = dia(new Date());
+  const trocar = (campo: 'de' | 'ate', valor: string) => {
+    if (!DIA.test(valor)) return;
+    mudar({ ...filtro, ...datasPersonalizadas(campo === 'de' ? valor : de, campo === 'ate' ? valor : ate, campo) });
+  };
+  return (
+    <div class="kt-datas" role="group" aria-label="Datas do período">
+      <label class="kt-data">
+        <span class="kt-invisivel">De</span>
+        <input type="date" value={de} max={hoje} onChange={(e) => trocar('de', (e.target as HTMLInputElement).value)} />
+      </label>
+      <span class="kt-muted" aria-hidden="true">
+        até
+      </span>
+      <label class="kt-data">
+        <span class="kt-invisivel">Até</span>
+        <input type="date" value={ate} max={hoje} onChange={(e) => trocar('ate', (e.target as HTMLInputElement).value)} />
+      </label>
+    </div>
+  );
+}
+
 /** Uma linha de filtros acima de todas as abas: período primeiro. */
 export function BarraFiltros({ filtro, opcoes, mudar }: { filtro: Filtro; opcoes: Filtros | null; mudar: (f: Filtro) => void }) {
   const campanhas = (opcoes?.campanhas ?? []).filter((c) => !filtro.contaAnuncio || c.contaAnuncioId === filtro.contaAnuncio);
   return (
     <div class="kt-filtros" role="group" aria-label="Filtros">
-      <Seletor icone="calendario" rotulo="Período" valor={filtro.preset} mudar={(v) => mudar({ ...filtro, preset: v as Preset })}>
+      <Seletor
+        icone="calendario"
+        rotulo="Período"
+        valor={filtro.preset}
+        // Ao abrir o personalizado, parte do período que estava na tela.
+        mudar={(v) => mudar(v === 'personalizado' ? { ...filtro, preset: 'personalizado', ...intervalo(filtro) } : { ...filtro, preset: v as Preset })}
+      >
         {PRESETS.map((p) => (
           <option key={p.id} value={p.id}>
             {p.rotulo}
           </option>
         ))}
       </Seletor>
+      {filtro.preset === 'personalizado' && <Datas filtro={filtro} mudar={mudar} />}
       {(opcoes?.contasAnuncio.length ?? 0) > 1 && (
         <Seletor icone="maleta" rotulo="Conta de anúncio" valor={filtro.contaAnuncio} mudar={(v) => mudar({ ...filtro, contaAnuncio: v, campanha: '' })}>
           <option value="">Todas as contas</option>

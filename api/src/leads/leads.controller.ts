@@ -138,7 +138,8 @@ export class KentroController {
     };
 
     // chat_iniciado não marca "atendido": o atendimento pode estar só com a IA ou na fila.
-    const lead = await this.leads.registrarAtendimento(conta.id, atendimento, autor, false);
+    // chat_iniciado pode ser reenviado (é idempotente): é assim que a automação conta quem assumiu.
+    const lead = await this.leads.definirAtendente(await this.leads.registrarAtendimento(conta.id, atendimento, autor, false), corpo.atendenteId, corpo.atendente);
     if (evento !== 'chat_iniciado') {
       await this.leads.mudarEtapa(conta.id, lead, evento as Exclude<(typeof EVENTOS)[number], 'chat_iniciado'>, { valor: valorDe(corpo.valor), motivo: typeof corpo.motivo === 'string' ? corpo.motivo : undefined }, autor);
     }
@@ -163,14 +164,15 @@ export class KentroController {
   }
 
   private descrever(contaId: string, versao: number) {
-    const base = { chatId: '{{chat_id}}', telefone: '{{chat_client_number}}', nome: '{{chat_client_name}}', contatoId: '{{chat_contact_id}}' };
+    const atendente = { atendenteId: '{{chat_recent_agent_id}}', atendente: '{{chat_agent.agent_full_name}}' };
+    const base = { chatId: '{{chat_id}}', telefone: '{{chat_client_number}}', nome: '{{chat_client_name}}', contatoId: '{{chat_contact_id}}', ...atendente };
     return {
       url: this.leads.urlWebhook(contaId, versao),
       exemplos: {
         chat_iniciado: { evento: 'chat_iniciado', ...base, anuncio: { url: '{{message_ad_url}}', titulo: '{{message_ad_title}}', texto: '{{message_ad_body}}' } },
-        qualificado: { evento: 'qualificado', chatId: '{{chat_id}}' },
-        venda: { evento: 'venda', chatId: '{{chat_id}}', valor: '{{opportunity_value}}' },
-        descartado: { evento: 'descartado', chatId: '{{chat_id}}', motivo: 'Sem interesse' },
+        qualificado: { evento: 'qualificado', chatId: '{{chat_id}}', ...atendente },
+        venda: { evento: 'venda', chatId: '{{chat_id}}', valor: '{{opportunity_value}}', ...atendente },
+        descartado: { evento: 'descartado', chatId: '{{chat_id}}', motivo: 'Sem interesse', ...atendente },
       },
     };
   }

@@ -1,7 +1,8 @@
+import { useEffect, useState } from 'preact/hooks';
 import { Avatar, Aviso, Carregando, Vazio } from '../../comum/componentes';
 import { Icone } from '../../comum/icones';
 import { dinheiro, inteiro, percentual } from '../../comum/formato';
-import { avisar, type Omni } from '../../comum/omni';
+import { avisar, codigoDoErro, type ChatOmni, type Omni } from '../../comum/omni';
 import { Seletor, type Carga } from './filtro';
 
 export type Etapa = 'novo' | 'em_atendimento' | 'qualificado' | 'venda' | 'descartado';
@@ -65,11 +66,65 @@ const ORIGENS: { id: FiltroLeads['origem']; rotulo: string }[] = [
 
 const ETAPA_ROTULO: Record<Etapa, string> = { novo: 'Novo', em_atendimento: 'Em atendimento', qualificado: 'Qualificado', venda: 'Venda', descartado: 'Descartado' };
 
+/**
+ * Quem está com o atendimento agora, lido da própria Kentro (chamadas do SDK, fora do limite do
+ * omni.http.request). Só para os leads em que o Kentro Track ainda não sabe o atendente.
+ */
+function useAtendentesAtuais(omni: Omni, itens: DadosLeads['itens'] | undefined): Record<string, string> {
+  const [nomes, setNomes] = useState<Record<string, string>>({});
+  useEffect(() => {
+    const semAtendente = (itens ?? []).filter((l) => l.chatId && !l.atendente);
+    if (semAtendente.length === 0) return;
+    let vivo = true;
+    (async () => {
+      const usuarios = await Promise.resolve()
+        .then(() => omni.users.list())
+        .catch(() => []);
+      const porId = new Map(usuarios.map((u) => [u.id, u.name]));
+      const achados: Record<string, string> = {};
+      await Promise.all(
+        semAtendente.map(async (l) => {
+          const chat = await Promise.resolve()
+            .then(() => omni.chats.get(Number(l.chatId)))
+            .catch(() => null);
+          const nome = chat?.userId ? porId.get(chat.userId) : undefined;
+          if (nome) achados[l.chatId!] = nome;
+        }),
+      );
+      if (vivo) setNomes(achados);
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [omni, itens]);
+  return nomes;
+}
+
 export function Leads({ omni, carga, filtro, mudar }: { omni: Omni; carga: Carga<DadosLeads>; filtro: FiltroLeads; mudar: (f: FiltroLeads) => void }) {
   const { dados, erro, carregando } = carga;
-  const abrirConversa = async (chatId: string) => {
-    const r = await omni.chats.select(Number(chatId)).catch(() => ({ selected: false }));
-    if (!r.selected) avisar('Não foi possível abrir este atendimento (ele pode estar encerrado ou em outra fila).', 'error');
+  const atuais = useAtendentesAtuais(omni, dados?.itens);
+
+  // Consulta antes de abrir: o select só diz "não abriu", o get diz se o usuário enxerga o atendimento.
+  const abrirConversa = async (chatId: string, atendente: string | null) => {
+    const id = Number(chatId);
+    let chat: ChatOmni;
+    try {
+      chat = await omni.chats.get(id);
+    } catch (e) {
+      const codigo = codigoDoErro(e);
+      avisar(
+        codigo === 'not_found' || codigo === 'forbidden'
+          ? `Seu usuário não enxerga o atendimento #${id} na Kentro (encerrado, de outra fila ou sem permissão).`
+          : `Não foi possível consultar o atendimento #${id} na Kentro (${codigo}).`,
+        'error',
+      );
+      return;
+    }
+    const r: { selected: boolean; codigo?: string } = await omni.chats.select(id).catch((e) => ({ selected: false, codigo: codigoDoErro(e) }));
+    if (r.selected) return;
+    console.warn('[Kentro Track] a Kentro não abriu o atendimento', { chat, resposta: r });
+    const com = atendente ?? atuais[chatId];
+    avisar(`A Kentro não abriu o atendimento #${id}${com ? `, que está com ${com}` : ''}${r.codigo ? ` (${r.codigo})` : ''}.`, 'error');
   };
 
   return (
@@ -135,14 +190,16 @@ export function Leads({ omni, carga, filtro, mudar }: { omni: Omni; carga: Carga
                       {l.anuncio && <span class="kt-muted"> › {l.anuncio}</span>}
                       {l.vinculoAproximado && <span class="kt-muted" title="Anúncio identificado pelo texto ou pelo link do post"> *</span>}
                     </td>
-                    <td>{l.atendente ?? '—'}</td>
+                    <td>
+                      {l.atendente ?? (l.chatId && atuais[l.chatId] ? <span title="Com o atendimento agora na Kentro">{atuais[l.chatId]}</span> : '—')}
+                    </td>
                     <td>
                       <span class={`kt-etapa kt-etapa-${l.etapa}`}>{ETAPA_ROTULO[l.etapa]}</span>
                     </td>
                     <td class="kt-num">{l.valorVenda == null ? '—' : dinheiro(l.valorVenda)}</td>
                     <td>
                       {l.chatId && (
-                        <button type="button" class="kt-botao kt-botao-fantasma kt-botao-pequeno" onClick={() => abrirConversa(l.chatId!)}>
+                        <button type="button" class="kt-botao kt-botao-fantasma kt-botao-pequeno" onClick={() => abrirConversa(l.chatId!, l.atendente)}>
                           <Icone nome="externo" tamanho={13} />
                           Abrir conversa
                         </button>

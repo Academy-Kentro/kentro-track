@@ -1,4 +1,4 @@
-import type { ChatOmni, MensagemOmni, Omni, RespostaHttp } from '../../../extension/comum/omni';
+import type { ChatOmni, MensagemOmni, Omni, RespostaHttp, UsuarioOmni } from '../../../extension/comum/omni';
 
 export interface ChamadaHttp {
   url: string;
@@ -13,6 +13,11 @@ export interface OpcoesFalso {
   /** Responde as chamadas do omni.http.request (a API do Kentro Track). */
   http?: (chamada: ChamadaHttp) => RespostaHttp | Promise<RespostaHttp>;
   confirmar?: boolean;
+  /** Atendimentos que o usuário enxerga (omni.chats.get); fora daqui, rejeita com not_found. */
+  atendimentos?: ChatOmni[];
+  usuarios?: UsuarioOmni[];
+  /** O que o omni.chats.select responde (padrão: abriu). */
+  abre?: boolean;
 }
 
 /** SDK da Kentro em memória, só com o que as extensões usam. */
@@ -45,6 +50,11 @@ export function omniFalso(opcoes: OpcoesFalso = {}) {
     },
     chats: {
       getSelected: async () => opcoes.chat ?? null,
+      get: async (chatId) => {
+        const chat = (opcoes.atendimentos ?? [{ id: chatId }]).find((c) => c.id === chatId);
+        if (!chat) throw Object.assign(new Error('não encontrado'), { code: 'not_found' });
+        return chat;
+      },
       // Como o SDK: da mais recente para a mais antiga, em páginas, cortando pelo id.
       getMessages: async (chatId, opts) => {
         paginas.push({ chatId, before: opts?.before });
@@ -55,8 +65,11 @@ export function omniFalso(opcoes: OpcoesFalso = {}) {
       },
       select: async (chatId) => {
         selecionados.push(chatId);
-        return { selected: true };
+        return { selected: opcoes.abre ?? true };
       },
+    },
+    users: {
+      list: async () => opcoes.usuarios ?? [],
     },
     ui: {
       toast: async (msg) => {

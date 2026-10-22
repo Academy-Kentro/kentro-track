@@ -16,6 +16,10 @@ export interface CtxOmni {
 
 export interface ChatOmni {
   id: number;
+  queueId?: number | null;
+  /** Atendente com o atendimento agora (null na fila ou com a IA). */
+  userId?: number | null;
+  status?: unknown;
   contactId?: number | null;
   channel?: unknown;
   contact?: { name?: string; phone?: string } | null;
@@ -44,8 +48,13 @@ export interface Omni {
   };
   chats: {
     getSelected(): Promise<ChatOmni | null>;
+    /** Rejeita com `not_found` se o usuário não puder ver o atendimento. */
+    get(chatId: number): Promise<ChatOmni>;
     getMessages(chatId: number, opts?: { limit?: number; before?: number | string }): Promise<MensagemOmni[]>;
     select(chatId: number): Promise<{ selected: boolean }>;
+  };
+  users: {
+    list(): Promise<UsuarioOmni[]>;
   };
   ui: {
     toast(msg: string, tipo?: 'success' | 'error' | 'info' | 'warning'): Promise<unknown>;
@@ -64,6 +73,12 @@ export function sdk(): Omni {
   const omni = (globalThis as { omni?: Omni }).omni;
   if (!omni) throw new Error('O SDK da Kentro (omni) não foi carregado.');
   return omni;
+}
+
+/** Código estável da rejeição do SDK (`not_found`, `forbidden`...), ou `internal` se não vier. */
+export function codigoDoErro(e: unknown): string {
+  const codigo = (e as { code?: unknown } | null)?.code;
+  return typeof codigo === 'string' && codigo ? codigo : 'internal';
 }
 
 /** Aviso flutuante da Kentro, sem derrubar a tela se o host recusar. */

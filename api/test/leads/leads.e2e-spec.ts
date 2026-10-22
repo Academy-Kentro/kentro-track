@@ -245,6 +245,22 @@ describe('webhook da automação da Kentro', () => {
     expect(await prisma.lead.findFirstOrThrow()).toMatchObject({ origem: 'organico', telefone: null, anuncioUrl: null });
   });
 
+  it('atendente vem da automação (chat_recent_agent_id) e vale mais que quem abriu o painel', async () => {
+    const { body } = await integracao();
+    expect(body.exemplos.venda).toMatchObject({ atendenteId: '{{chat_recent_agent_id}}', atendente: '{{chat_agent.agent_full_name}}' });
+    // Na entrada ainda não há atendente: a Kentro manda 0 e o nome vazio.
+    await http().post(caminho(body.url)).send({ evento: 'chat_iniciado', chatId: '604', atendenteId: '0', atendente: '' });
+    expect(await prisma.lead.findFirstOrThrow()).toMatchObject({ atendenteId: null, atendenteNome: null });
+
+    await comChave(http().post('/v1/atendimento/vincular'), r.chaveAtendimento).set('X-Kentro-Usuario-Id', '3').set('X-Kentro-Usuario-Nome', 'Supervisor').send({ chatId: '604' });
+    await http().post(caminho(body.url)).send({ evento: 'chat_iniciado', chatId: '604', atendenteId: '7', atendente: 'Ana' });
+    expect(await prisma.lead.findFirstOrThrow()).toMatchObject({ atendenteId: '7', atendenteNome: 'Ana' });
+
+    // Sem o nome (chat_agent vazio depois de encerrado), mantém o que já sabia do mesmo atendente.
+    await http().post(caminho(body.url)).send({ evento: 'venda', chatId: '604', valor: '100', atendenteId: '7', atendente: '{{chat_agent.agent_full_name}}' });
+    expect(await prisma.lead.findFirstOrThrow()).toMatchObject({ etapa: 'venda', atendenteId: '7', atendenteNome: 'Ana' });
+  });
+
   it('venda pela automação com valor em texto brasileiro', async () => {
     const { body } = await integracao();
     await http().post(caminho(body.url)).send({ evento: 'chat_iniciado', chatId: '603' });

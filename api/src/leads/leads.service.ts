@@ -244,6 +244,18 @@ export class LeadsService {
     }
   }
 
+  /**
+   * Atendente informado pela automação (chat_recent_agent_id): é o dono do atendimento na Kentro,
+   * por isso vale mais que quem abriu o painel e substitui o que estava gravado.
+   */
+  async definirAtendente(lead: Lead, id: unknown, nome: unknown): Promise<Lead> {
+    const atendenteId = limpo(id, 20);
+    if (!atendenteId || !/^\d+$/.test(atendenteId) || Number(atendenteId) === 0) return lead;
+    const atendenteNome = limpo(nome, 120) ?? (lead.atendenteId === atendenteId ? lead.atendenteNome : null);
+    if (lead.atendenteId === atendenteId && lead.atendenteNome === atendenteNome) return lead;
+    return this.prisma.lead.update({ where: { id: lead.id }, data: { atendenteId, atendenteNome } });
+  }
+
   async mudarEtapa(contaId: string, lead: Lead, etapa: EtapaDoAtendente, extra: { valor?: number; motivo?: string }, autor: Autor): Promise<Lead> {
     const agora = new Date();
     const dados: Prisma.LeadUncheckedUpdateInput = { etapa };

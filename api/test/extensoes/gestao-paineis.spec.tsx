@@ -357,6 +357,28 @@ describe('gestão: funil do atendimento, leads, equipe e integração', () => {
     expect(falso.selecionados).toEqual([501]);
   });
 
+  it('aba Leads: mostra quem está com o atendimento na Kentro e explica por que não abriu', async () => {
+    const semAtendente = { ...LEADS, itens: [{ ...LEADS.itens[0], atendente: null }] };
+    const falso = await montar({
+      http: api({ '/v1/conta': CONTA, '/v1/painel/filtros': FILTROS, '/v1/painel/leads': semAtendente }),
+      atendimentos: [{ id: 501, userId: 7 }],
+      usuarios: [{ id: 7, name: 'Bruno' }],
+      abre: false,
+    });
+    await clicar(botao('Leads'));
+    expect(raiz.querySelector('tbody tr')!.textContent).toContain('Bruno');
+    await clicar(botao('Abrir conversa'));
+    expect(falso.toasts.at(-1)).toBe('A Kentro não abriu o atendimento #501, que está com Bruno.');
+  });
+
+  it('aba Leads: atendimento que o usuário não enxerga nem tenta abrir', async () => {
+    const falso = await montar({ http: api({ '/v1/conta': CONTA, '/v1/painel/filtros': FILTROS, '/v1/painel/leads': LEADS }), atendimentos: [] });
+    await clicar(botao('Leads'));
+    await clicar(botao('Abrir conversa'));
+    expect(falso.selecionados).toEqual([]);
+    expect(falso.toasts.at(-1)).toContain('Seu usuário não enxerga o atendimento #501');
+  });
+
   it('aba Equipe: por atendente', async () => {
     await montar({
       http: api({

@@ -16,8 +16,6 @@ export interface OpcoesFalso {
   /** Atendimentos que o usuário enxerga (omni.chats.get); fora daqui, rejeita com not_found. */
   atendimentos?: ChatOmni[];
   usuarios?: UsuarioOmni[];
-  /** O que o omni.chats.select responde (padrão: abriu). */
-  abre?: boolean;
 }
 
 /** SDK da Kentro em memória, só com o que as extensões usam. */
@@ -26,7 +24,6 @@ export function omniFalso(opcoes: OpcoesFalso = {}) {
   const paginas: { chatId: number; before?: number | string }[] = [];
   const armazenamento = new Map<string, unknown>();
   const toasts: string[] = [];
-  const selecionados: number[] = [];
   const ouvintes = new Map<string, ((p: never) => void)[]>();
 
   const omni: Omni = {
@@ -63,10 +60,6 @@ export function omniFalso(opcoes: OpcoesFalso = {}) {
         const filtradas = opts?.before === undefined ? ordenadas : ordenadas.filter((m) => Number(m.id) < Number(opts.before));
         return filtradas.slice(0, limite);
       },
-      select: async (chatId) => {
-        selecionados.push(chatId);
-        return { selected: opcoes.abre ?? true };
-      },
     },
     users: {
       list: async () => opcoes.usuarios ?? [],
@@ -97,7 +90,7 @@ export function omniFalso(opcoes: OpcoesFalso = {}) {
     for (const cb of ouvintes.get(evento) ?? []) cb(payload as never);
   };
 
-  return { omni, chamadas, paginas, armazenamento, toasts, selecionados, emitir };
+  return { omni, chamadas, paginas, armazenamento, toasts, emitir };
 }
 
 export const ok = (corpo: unknown, status = 200): RespostaHttp => ({ status, body: JSON.stringify(corpo) });

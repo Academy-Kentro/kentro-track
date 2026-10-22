@@ -18,6 +18,8 @@ export interface Filtro {
 const MAX_DIAS = 400;
 const MAX_ANUNCIOS = 2000;
 const MAX_CRIATIVOS = 60;
+/** Leads sem atendente que a tela consulta na Kentro de uma vez. */
+export const MAX_ATENDENTES_POR_VEZ = 100;
 
 /** Leads conforme a definição de cada conta de anúncio (formulário, conversa, site). */
 const SOMAS_SQL = Prisma.sql`
@@ -313,6 +315,22 @@ export class PainelService {
     };
   }
 
+  /**
+   * Atendente que a tela do gestor leu na Kentro (omni.chats.get) para leads que ainda não tinham:
+   * só preenche, nunca troca o que o painel do atendente ou a automação já gravaram.
+   */
+  async registrarAtendentes(contaId: string, itens: { chatId: string; atendenteId: string; atendente: string }[]) {
+    let atualizados = 0;
+    for (const i of itens.slice(0, MAX_ATENDENTES_POR_VEZ)) {
+      const r = await this.prisma.lead.updateMany({
+        where: { contaId, chatId: i.chatId, atendenteId: null },
+        data: { atendenteId: i.atendenteId, atendenteNome: i.atendente.trim().slice(0, 120) },
+      });
+      atualizados += r.count;
+    }
+    return { atualizados };
+  }
+
   /** Por atendente: quem recebeu os leads do período e quanto converteu. */
   async equipe(contaId: string, filtro: Filtro) {
     const { moeda, ondeLeads } = await this.escopo(contaId, filtro);
@@ -324,8 +342,15 @@ export class PainelService {
       WHERE ${ondeLeads(filtro.de, filtro.ate, true)}
       GROUP BY 1
       ORDER BY COUNT(*) FILTER (WHERE l.etapa = 'venda') DESC, COUNT(*) DESC`;
+    // A tela pergunta à Kentro quem está com estes e devolve em registrarAtendentes.
+    const semAtendente = await this.prisma.$queryRaw<{ chat_id: string }[]>`
+      SELECT l.chat_id FROM leads l
+      WHERE ${ondeLeads(filtro.de, filtro.ate, true)} AND l.atendente_id IS NULL AND l.chat_id IS NOT NULL
+      ORDER BY l.recebido_em DESC
+      LIMIT ${MAX_ATENDENTES_POR_VEZ}`;
     return {
       moeda,
+      semAtendente: semAtendente.map((l) => l.chat_id),
       atendentes: linhas.map((l) => {
         const m = calcular(somasDe(l));
         return {

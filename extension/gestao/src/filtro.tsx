@@ -115,7 +115,7 @@ export function BarraFiltros({ filtro, opcoes, mudar }: { filtro: Filtro; opcoes
   );
 }
 
-export type Carga<T> = { dados: T | null; erro: string; carregando: boolean };
+export type Carga<T> = { dados: T | null; erro: string; carregando: boolean; recarregar?: () => void };
 
 /**
  * Busca a rota da aba a cada mudança de filtro. Enquanto recarrega, mantém os dados anteriores
@@ -142,5 +142,5 @@ export function useDados<T>(api: Api, caminho: string | null, recarregarACada?: 
     return () => clearInterval(relogio);
   }, [recarregarACada, caminho]);
 
-  return estado;
+  return { ...estado, recarregar: () => setTique((t) => t + 1) };
 }

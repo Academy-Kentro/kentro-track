@@ -344,7 +344,7 @@ describe('gestão: funil do atendimento, leads, equipe e integração', () => {
     expect(raiz.querySelector('.kt-funil')).toBeNull();
   });
 
-  it('aba Leads: filtra por etapa, pagina e abre a conversa na Kentro', async () => {
+  it('aba Leads: filtra por etapa e pagina, sem botão de abrir conversa', async () => {
     const falso = await montar({ http: api({ '/v1/conta': CONTA, '/v1/painel/filtros': FILTROS, '/v1/painel/leads': LEADS }) });
     await clicar(botao('Leads'));
     expect(texto()).toContain('Maria · (38) 9****-0000');
@@ -353,36 +353,7 @@ describe('gestão: funil do atendimento, leads, equipe e integração', () => {
     expect(new URL(falso.chamadas.at(-1)!.url).searchParams.get('etapa')).toBe('venda');
     await clicar(botao('Próximos'));
     expect(new URL(falso.chamadas.at(-1)!.url).searchParams.get('pagina')).toBe('2');
-    await clicar(botao('Abrir conversa'));
-    expect(falso.selecionados).toEqual([501]);
-  });
-
-  it('aba Leads: atendimento de outro usuário abre a conversa em modo leitura', async () => {
-    const semAtendente = { ...LEADS, itens: [{ ...LEADS.itens[0], atendente: null }] };
-    await montar({
-      http: api({ '/v1/conta': CONTA, '/v1/painel/filtros': FILTROS, '/v1/painel/leads': semAtendente }),
-      atendimentos: [{ id: 501, userId: 7 }],
-      usuarios: [{ id: 7, name: 'Bruno' }],
-      abre: false,
-      mensagens: [
-        { id: 10, direction: 'in', text: 'Oi, ainda tem o Polo?', at: '2026-10-10T16:00:00Z', userId: null },
-        { id: 11, direction: 'out', text: 'Tem sim!', at: '2026-10-10T16:01:00Z', userId: 7, participantName: 'Bruno' },
-        { id: 12, direction: null, text: null, fileName: 'foto.jpg', at: '2026-10-10T16:02:00Z', userId: 7 },
-      ],
-    });
-    await clicar(botao('Leads'));
-    expect(raiz.querySelector('tbody tr')!.textContent).toContain('Bruno');
-    await clicar(botao('Abrir conversa'));
-    const modal = raiz.querySelector('[role="dialog"]')!;
-    expect(modal.textContent).toContain('só leitura, a conversa está com Bruno');
-    const baloes = [...modal.querySelectorAll('.kt-balao')].map((b) => [b.classList.contains('kt-balao-cliente') ? 'cliente' : 'empresa', b.querySelector('.kt-balao-texto')!.textContent]);
-    expect(baloes).toEqual([
-      ['cliente', 'Oi, ainda tem o Polo?'],
-      ['empresa', 'Tem sim!'],
-      ['empresa', 'Arquivo: foto.jpg'],
-    ]);
-    await clicar(modal.querySelector('[aria-label="Fechar"]')!);
-    expect(raiz.querySelector('[role="dialog"]')).toBeNull();
+    expect(botao('Abrir conversa')).toBeUndefined();
   });
 
   it('filtro de campanhas: ativas antes das pausadas', async () => {
@@ -398,14 +369,6 @@ describe('gestão: funil do atendimento, leads, equipe e integração', () => {
     ]);
   });
 
-  it('aba Leads: atendimento que o usuário não enxerga nem tenta abrir', async () => {
-    const falso = await montar({ http: api({ '/v1/conta': CONTA, '/v1/painel/filtros': FILTROS, '/v1/painel/leads': LEADS }), atendimentos: [] });
-    await clicar(botao('Leads'));
-    await clicar(botao('Abrir conversa'));
-    expect(falso.selecionados).toEqual([]);
-    expect(falso.toasts.at(-1)).toContain('Seu usuário não enxerga o atendimento #501');
-  });
-
   it('aba Equipe: por atendente', async () => {
     await montar({
       http: api({
@@ -419,6 +382,30 @@ describe('gestão: funil do atendimento, leads, equipe e integração', () => {
     expect(linha).toContain('Ana');
     expect(linha).toContain('20,0%');
     expect(linha).toContain('1,6 h');
+  });
+
+  it('aba Equipe: pergunta à Kentro quem está com os leads sem atendente, grava e recarrega', async () => {
+    let gravado = false;
+    const falso = await montar({
+      http: (c) => {
+        const caminho = new URL(c.url).pathname;
+        if (caminho === '/v1/painel/atendentes') {
+          gravado = true;
+          return ok({ atualizados: 1 });
+        }
+        const equipe = gravado
+          ? { moeda: 'BRL', atendentes: [{ id: '7', nome: 'Bruno', entradas: 1, qualificados: 0, vendas: 0, descartados: 0, receita: 0, taxaVenda: 0, minutosAteAtender: null }], semAtendente: [] }
+          : { moeda: 'BRL', atendentes: [{ id: null, nome: 'Sem atendente', entradas: 2, qualificados: 0, vendas: 0, descartados: 0, receita: 0, taxaVenda: 0, minutosAteAtender: null }], semAtendente: ['501', '502'] };
+        return api({ '/v1/conta': CONTA, '/v1/painel/filtros': FILTROS, '/v1/painel/equipe': equipe })(c);
+      },
+      // 502 o usuário não enxerga: fica de fora.
+      atendimentos: [{ id: 501, userId: 7 }],
+      usuarios: [{ id: 7, name: 'Bruno' }],
+    });
+    await clicar(botao('Equipe'));
+    const envio = falso.chamadas.find((c) => c.url.endsWith('/v1/painel/atendentes'))!;
+    expect(envio.corpo).toEqual({ itens: [{ chatId: '501', atendenteId: '7', atendente: 'Bruno' }] });
+    expect(raiz.querySelector('tbody tr')!.textContent).toContain('Bruno');
   });
 
   it('Configurações mostra a URL da integração com os corpos de exemplo', async () => {

@@ -1,9 +1,29 @@
-import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, IsString, IsUUID, Length, Matches, Max, Min } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsIn, IsInt, IsOptional, IsString, IsUUID, Length, Matches, Max, Min, ValidateNested } from 'class-validator';
 import { ChaveContaGuard, Papeis, RequisicaoDaConta } from '../contas/chave-conta.guard';
 import { AnalisesService } from './analises.service';
-import { PainelService } from './painel.service';
+import { MAX_ATENDENTES_POR_VEZ, PainelService } from './painel.service';
+
+export class AtendenteDoChatDto {
+  @Matches(/^\d{1,20}$/)
+  chatId!: string;
+
+  @Matches(/^[1-9]\d{0,19}$/)
+  atendenteId!: string;
+
+  @IsString()
+  @Length(1, 120)
+  atendente!: string;
+}
+
+export class AtendentesDto {
+  @IsArray()
+  @ArrayMaxSize(MAX_ATENDENTES_POR_VEZ)
+  @ValidateNested({ each: true })
+  @Type(() => AtendenteDoChatDto)
+  itens!: AtendenteDoChatDto[];
+}
 
 export class FiltroDto {
   @Matches(/^\d{4}-\d{2}-\d{2}$/)
@@ -73,6 +93,13 @@ export class PainelController {
   @Get('leads')
   leads(@Req() req: RequisicaoDaConta, @Query() filtro: FiltroLeadsDto) {
     return this.painel.leads(req.conta.id, filtro);
+  }
+
+  /** O que a tela do gestor leu na Kentro sobre quem está com cada atendimento. */
+  @Post('atendentes')
+  @HttpCode(200)
+  atendentes(@Req() req: RequisicaoDaConta, @Body() dto: AtendentesDto) {
+    return this.painel.registrarAtendentes(req.conta.id, dto.itens);
   }
 
   @Get('analises')

@@ -360,5 +360,23 @@ describe('funil do atendimento no painel do gestor', () => {
     const ana = res.body.atendentes.find((a: { nome: string }) => a.nome === 'Ana');
     expect(ana).toMatchObject({ id: '7', entradas: 2, qualificados: 2, vendas: 1, receita: 3000, taxaVenda: 50, minutosAteAtender: 20 });
     expect(res.body.atendentes.find((a: { nome: string }) => a.nome === 'Sem atendente')).toMatchObject({ entradas: 2 });
+    expect(res.body.semAtendente.sort()).toEqual(['4', '5']);
+  });
+
+  it('a tela do gestor grava o atendente lido na Kentro só onde faltava', async () => {
+    await semearFunil();
+    const enviar = (itens: unknown) => comChave(request(app.getHttpServer()).post('/v1/painel/atendentes'), r.chaveGestor).send({ itens });
+    const res = await enviar([
+      { chatId: '4', atendenteId: '9', atendente: 'Carla' },
+      // Já tinha atendente gravado: não troca.
+      { chatId: '1', atendenteId: '9', atendente: 'Carla' },
+    ]);
+    expect(res.body).toEqual({ atualizados: 1 });
+    expect(await prisma.lead.findFirstOrThrow({ where: { chatId: '4' } })).toMatchObject({ atendenteId: '9', atendenteNome: 'Carla' });
+    expect(await prisma.lead.findFirstOrThrow({ where: { chatId: '1' } })).toMatchObject({ atendenteId: '7', atendenteNome: 'Ana' });
+    expect((await painel('equipe', 'de=2026-10-10&ate=2026-10-16')).body.semAtendente).toEqual(['5']);
+
+    expect((await enviar([{ chatId: '5', atendenteId: '0', atendente: 'X' }])).status).toBe(400);
+    expect((await comChave(request(app.getHttpServer()).post('/v1/painel/atendentes'), r.chaveAtendimento).send({ itens: [] })).status).toBe(403);
   });
 });

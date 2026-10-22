@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
+import type { Api } from '../../comum/api';
 import { Avatar, Aviso, Carregando, Vazio } from '../../comum/componentes';
-import { Icone } from '../../comum/icones';
 import { dinheiro, inteiro, percentual } from '../../comum/formato';
-import { avisar, codigoDoErro, type ChatOmni, type Omni } from '../../comum/omni';
-import { Conversa, type ConversaAberta } from './conversa';
+import type { Omni } from '../../comum/omni';
+import { atendentesNaKentro, gravarAtendentes } from './atendentes';
 import { Seletor, type Carga } from './filtro';
 
 export type Etapa = 'novo' | 'em_atendimento' | 'qualificado' | 'venda' | 'descartado';
@@ -41,6 +41,8 @@ export interface DadosEquipe {
     taxaVenda: number | null;
     minutosAteAtender: number | null;
   }[];
+  /** Atendimentos do período sem atendente gravado: a tela pergunta à Kentro quem está com eles. */
+  semAtendente?: string[];
 }
 
 export interface FiltroLeads {
@@ -68,65 +70,30 @@ const ORIGENS: { id: FiltroLeads['origem']; rotulo: string }[] = [
 const ETAPA_ROTULO: Record<Etapa, string> = { novo: 'Novo', em_atendimento: 'Em atendimento', qualificado: 'Qualificado', venda: 'Venda', descartado: 'Descartado' };
 
 /**
- * Quem está com o atendimento agora, lido da própria Kentro (chamadas do SDK, fora do limite do
- * omni.http.request). Só para os leads em que o Kentro Track ainda não sabe o atendente.
+ * Quem está com o atendimento agora na Kentro, para os leads em que o Kentro Track ainda não sabe:
+ * mostra na lista e grava, para a aba Equipe contar.
  */
-function useAtendentesAtuais(omni: Omni, itens: DadosLeads['itens'] | undefined): Record<string, string> {
+function useAtendentesAtuais(omni: Omni, api: Api, itens: DadosLeads['itens'] | undefined): Record<string, string> {
   const [nomes, setNomes] = useState<Record<string, string>>({});
   useEffect(() => {
-    const semAtendente = (itens ?? []).filter((l) => l.chatId && !l.atendente);
-    if (semAtendente.length === 0) return;
+    const chatIds = (itens ?? []).filter((l) => l.chatId && !l.atendente).map((l) => l.chatId!);
+    if (chatIds.length === 0) return;
     let vivo = true;
-    (async () => {
-      const usuarios = await Promise.resolve()
-        .then(() => omni.users.list())
-        .catch(() => []);
-      const porId = new Map(usuarios.map((u) => [u.id, u.name]));
-      const achados: Record<string, string> = {};
-      await Promise.all(
-        semAtendente.map(async (l) => {
-          const chat = await Promise.resolve()
-            .then(() => omni.chats.get(Number(l.chatId)))
-            .catch(() => null);
-          const nome = chat?.userId ? porId.get(chat.userId) : undefined;
-          if (nome) achados[l.chatId!] = nome;
-        }),
-      );
-      if (vivo) setNomes(achados);
-    })();
+    atendentesNaKentro(omni, chatIds).then((achados) => {
+      if (!vivo) return;
+      setNomes(Object.fromEntries(Object.entries(achados).map(([chatId, a]) => [chatId, a.atendente])));
+      gravarAtendentes(api, achados);
+    });
     return () => {
       vivo = false;
     };
-  }, [omni, itens]);
+  }, [omni, api, itens]);
   return nomes;
 }
 
-export function Leads({ omni, carga, filtro, mudar }: { omni: Omni; carga: Carga<DadosLeads>; filtro: FiltroLeads; mudar: (f: FiltroLeads) => void }) {
+export function Leads({ omni, api, carga, filtro, mudar }: { omni: Omni; api: Api; carga: Carga<DadosLeads>; filtro: FiltroLeads; mudar: (f: FiltroLeads) => void }) {
   const { dados, erro, carregando } = carga;
-  const atuais = useAtendentesAtuais(omni, dados?.itens);
-  const [vendo, setVendo] = useState<ConversaAberta | null>(null);
-
-  // Consulta antes de abrir: o select só diz "não abriu", o get diz se o usuário enxerga o atendimento.
-  const abrirConversa = async (chatId: string, nome: string | null, atendente: string | null) => {
-    const id = Number(chatId);
-    let chat: ChatOmni;
-    try {
-      chat = await omni.chats.get(id);
-    } catch (e) {
-      const codigo = codigoDoErro(e);
-      avisar(
-        codigo === 'not_found' || codigo === 'forbidden'
-          ? `Seu usuário não enxerga o atendimento #${id} na Kentro (encerrado, de outra fila ou sem permissão).`
-          : `Não foi possível consultar o atendimento #${id} na Kentro (${codigo}).`,
-        'error',
-      );
-      return;
-    }
-    // A tela de chat só abre os atendimentos do próprio usuário: os dos outros, o gestor lê aqui.
-    const r = await omni.chats.select(id).catch(() => ({ selected: false }));
-    if (r.selected) return;
-    setVendo({ chatId: chat.id ?? id, titulo: nome ?? 'Sem nome', com: atendente ?? atuais[chatId] ?? null });
-  };
+  const atuais = useAtendentesAtuais(omni, api, dados?.itens);
 
   return (
     <div class={carregando ? 'kt-recarregando' : ''}>
@@ -170,7 +137,6 @@ export function Leads({ omni, carga, filtro, mudar }: { omni: Omni; carga: Carga
                   <th>Atendente</th>
                   <th>Etapa</th>
                   <th class="kt-num">Venda</th>
-                  <th />
                 </tr>
               </thead>
               <tbody>
@@ -198,14 +164,6 @@ export function Leads({ omni, carga, filtro, mudar }: { omni: Omni; carga: Carga
                       <span class={`kt-etapa kt-etapa-${l.etapa}`}>{ETAPA_ROTULO[l.etapa]}</span>
                     </td>
                     <td class="kt-num">{l.valorVenda == null ? '—' : dinheiro(l.valorVenda)}</td>
-                    <td>
-                      {l.chatId && (
-                        <button type="button" class="kt-botao kt-botao-fantasma kt-botao-pequeno" onClick={() => abrirConversa(l.chatId!, l.nome, l.atendente)}>
-                          <Icone nome="externo" tamanho={13} />
-                          Abrir conversa
-                        </button>
-                      )}
-                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -223,13 +181,25 @@ export function Leads({ omni, carga, filtro, mudar }: { omni: Omni; carga: Carga
           </div>
         </>
       )}
-      {vendo && <Conversa omni={omni} conversa={vendo} fechar={() => setVendo(null)} />}
     </div>
   );
 }
 
-export function Equipe({ carga }: { carga: Carga<DadosEquipe> }) {
+export function Equipe({ omni, api, carga }: { omni: Omni; api: Api; carga: Carga<DadosEquipe> }) {
   const { dados, erro, carregando } = carga;
+  const consultados = useRef('');
+
+  // Leads sem atendente gravado: pergunta à Kentro uma vez por lista e recarrega se achou alguém.
+  useEffect(() => {
+    const chatIds = dados?.semAtendente ?? [];
+    const chave = chatIds.join(',');
+    if (chatIds.length === 0 || chave === consultados.current) return;
+    consultados.current = chave;
+    atendentesNaKentro(omni, chatIds)
+      .then((achados) => gravarAtendentes(api, achados))
+      .then((n) => n > 0 && carga.recarregar?.());
+  }, [omni, api, dados]);
+
   if (!dados) return erro ? <Aviso tipo="erro">{erro}</Aviso> : <Carregando />;
   if (dados.atendentes.length === 0) {
     return (
@@ -284,7 +254,7 @@ export function Equipe({ carga }: { carga: Carga<DadosEquipe> }) {
           </tbody>
         </table>
       </div>
-      <p class="kt-muted">Inclui atendimentos sem anúncio. "Sem atendente": leads que ainda não tiveram o painel aberto por ninguém (só a IA ou a fila).</p>
+      <p class="kt-muted">Inclui atendimentos sem anúncio. "Sem atendente": leads que ninguém assumiu ainda (só a IA ou a fila) ou que a Kentro não deixa seu usuário consultar.</p>
     </div>
   );
 }

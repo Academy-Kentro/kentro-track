@@ -101,8 +101,8 @@ function Paineis({ omni, api, conta, aba, irPara }: { omni: Omni; api: Api; cont
       {aba === 'analises' && <Analises carga={analises} />}
       {aba === 'campanhas' && <Campanhas carga={campanhas} />}
       {aba === 'criativos' && <Criativos carga={criativos} />}
-      {aba === 'leads' && <Leads omni={omni} carga={leads} filtro={filtroLeads} mudar={setFiltroLeads} />}
-      {aba === 'equipe' && <Equipe carga={equipe} />}
+      {aba === 'leads' && <Leads omni={omni} api={api} carga={leads} filtro={filtroLeads} mudar={setFiltroLeads} />}
+      {aba === 'equipe' && <Equipe omni={omni} api={api} carga={equipe} />}
     </>
   );
 }

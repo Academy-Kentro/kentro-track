@@ -32,15 +32,6 @@ export interface MensagemOmni {
   text?: string | null;
   at?: string | number | null;
   ad?: unknown;
-  /** Atendente, automação ou assistente que gravou a mensagem (nulos quando veio do cliente). */
-  userId?: number | null;
-  automationId?: number | null;
-  assistantId?: number | null;
-  participantName?: string | null;
-  transcription?: string | null;
-  fileRef?: string | number | null;
-  fileName?: string | null;
-  deleted?: boolean | null;
 }
 
 export interface RespostaHttp {
@@ -60,7 +51,6 @@ export interface Omni {
     /** Rejeita com `not_found` se o usuário não puder ver o atendimento. */
     get(chatId: number): Promise<ChatOmni>;
     getMessages(chatId: number, opts?: { limit?: number; before?: number | string }): Promise<MensagemOmni[]>;
-    select(chatId: number): Promise<{ selected: boolean }>;
   };
   users: {
     list(): Promise<UsuarioOmni[]>;
@@ -82,12 +72,6 @@ export function sdk(): Omni {
   const omni = (globalThis as { omni?: Omni }).omni;
   if (!omni) throw new Error('O SDK da Kentro (omni) não foi carregado.');
   return omni;
-}
-
-/** Código estável da rejeição do SDK (`not_found`, `forbidden`...), ou `internal` se não vier. */
-export function codigoDoErro(e: unknown): string {
-  const codigo = (e as { code?: unknown } | null)?.code;
-  return typeof codigo === 'string' && codigo ? codigo : 'internal';
 }
 
 /** Aviso flutuante da Kentro, sem derrubar a tela se o host recusar. */

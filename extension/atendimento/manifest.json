@@ -1,7 +1,7 @@
 {
   "manifestVersion": 1,
   "id": "kentro.track",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "name": "Kentro Track — Atendimento",
   "description": "De onde veio este lead: anúncio, criativo e respostas do formulário, com botões de qualificação e venda.",
   "author": { "name": "Kentro" },
@@ -24,6 +24,6 @@
     }
   ],
   "contributions": [
-    { "id": "origem", "type": "chatPanel", "title": "Origem do lead", "url": "painel.html" }
+    { "id": "origem", "type": "chatPanel", "title": "Origem do lead (by Kentro Track)", "url": "painel.html" }
   ]
 }

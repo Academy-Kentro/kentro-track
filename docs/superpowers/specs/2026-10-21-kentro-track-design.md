@@ -118,13 +118,13 @@ kentro-track/
 | Tipo | API ou microsserviço (NestJS) |
 | Pasta do projeto | `.` (o build precisa de `extension/`) |
 | Como construir | NestJS (`npm run build` → `dist/main.js`) |
-| Subdomínio | `tracks` → `https://tracks.apps.kentro.com.br` (no ar desde 21/10/2026, porta interna 10004; o nome curto vai aparecer na tela de consentimento do Meta) |
+| Subdomínio | `https://tracks.kentro.com.br` (domínio trocado em 23/10/2026; antes era `tracks.apps.kentro.com.br`; porta interna 10004; o nome curto vai aparecer na tela de consentimento do Meta) |
 | Porta / verificação | 3000 / `/` |
 | Memória / CPU | 512 MB / 0,5 para começar (a sincronização roda no mesmo processo, com concorrência limitada) |
 | Variáveis | `DATABASE_URL`, `CHAVE_MESTRA_CRIPTO` (base64 de 32 bytes, **nunca trocar**), `TOKEN_SUPERADMIN`, `URL_PUBLICA`, `META_APP_ID`, `META_APP_SECRET`, `META_CONFIG_ID` (configuração do Login for Business), `META_WEBHOOK_VERIFY_TOKEN`, `META_API_VERSION` (ex.: `v24.0`, ⚠ confirmar a vigente) |
 | Banco | o Postgres criado no Doca para o Kentro Track, ligado ao projeto (`DATABASE_URL`). As migrações do Prisma são donas do esquema |
 
-URLs para instalar: `https://tracks.apps.kentro.com.br/extensao/gestao/manifest.json` e `…/extensao/atendimento/manifest.json`.
+URLs para instalar: `https://tracks.kentro.com.br/extensao/gestao/manifest.json` e `…/extensao/atendimento/manifest.json`.
 
 **Escala (Fase 4):** a mesma imagem sobe com `PAPEL=api` ou `PAPEL=worker` (segundo projeto no Doca, mesmo repositório) quando a sincronização passar a disputar CPU com as requisições.
 

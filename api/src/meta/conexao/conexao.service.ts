@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ContaAnuncio } from '@prisma/client';
 import { ConfigApp, CONFIG_APP } from '../../comum/config';
 import { cifrar, decifrar } from '../../comum/cripto';
+import { comoDia, diaNoFuso, diasEntre } from '../../comum/datas';
 import { ErroApi } from '../../comum/erros';
 import { PrismaService } from '../../comum/prisma.service';
 import { ClienteGraph, TokenMeta } from '../cliente/graph';
@@ -41,6 +42,8 @@ function contaPublica(c: ContaAnuncio) {
     definicaoLead: c.definicaoLead,
     sincronizacao: {
       cargaConcluidaEm: c.cargaConcluidaEm,
+      // A carga inicial vai em blocos do mais recente para trás: quantos dos 90 já vieram.
+      diasCarregados: c.cargaDesde ? Math.min(90, diasEntre(comoDia(c.cargaDesde), diaNoFuso(new Date(), c.fuso)) + 1) : 0,
       ultimaEm: c.ultimaSincronizacaoEm,
       ultimoErro: c.ultimoErro,
       limitadaAte: c.limitadaAte && c.limitadaAte > new Date() ? c.limitadaAte : null,
@@ -188,7 +191,8 @@ export class ConexaoService {
     await this.prisma.$transaction(
       selecao.map((s) => {
         const antes = porId.get(s.id)!;
-        const passaASerSincronizada = s.selecionada && !antes.selecionada;
+        // Durante a espera pedida pelo Meta, a agenda fica como está (antecipar só renovaria o bloqueio).
+        const passaASerSincronizada = s.selecionada && !antes.selecionada && !(antes.limitadaAte && antes.limitadaAte > agora);
         return this.prisma.contaAnuncio.update({
           where: { id: s.id },
           data: {

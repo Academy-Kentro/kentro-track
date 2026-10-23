@@ -52,12 +52,16 @@ function comEntidades() {
   });
 }
 
-function comRelatorioAssincrono(linhas: object[]) {
-  let consultas = 0;
-  meta.post('act_111/insights', { corpo: { report_run_id: 'R1' } });
-  meta.get('R1', () => ({ corpo: { async_status: ++consultas < 2 ? 'Job Running' : 'Job Completed', async_percent_completion: consultas < 2 ? 50 : 100 } }));
-  meta.get('R1/insights', { corpo: { data: linhas } });
+/** Insights por consulta síncrona: devolve só as linhas do time_range pedido. */
+function comInsights(linhas: { date_start: string }[]) {
+  meta.get('act_111/insights', (req) => {
+    const { since, until } = JSON.parse(req.params.get('time_range')!);
+    return { corpo: { data: linhas.filter((l) => l.date_start >= since && l.date_start <= until) } };
+  });
 }
+
+const intervalos = () =>
+  meta.chamadas.filter((c) => c.caminho === 'act_111/insights').map((c) => JSON.parse(c.params.get('time_range')!) as { since: string; until: string });
 
 describe('sincronização com o Meta', () => {
   let app: INestApplication;
@@ -87,19 +91,30 @@ describe('sincronização com o Meta', () => {
     await prisma.$disconnect();
   });
 
+  /** A carga inicial vai em blocos de 7 dias: uma rodada por bloco até fechar os 90. */
   async function fazerCarga() {
-    comRelatorioAssincrono([linha('AD1', '2026-10-20', '100.50'), linha('AD2', '2026-10-21', '20')]);
-    expect(await sinc.executarProxima(AGORA)).toBe(true);
+    comInsights([linha('AD1', '2026-10-20', '100.50'), linha('AD2', '2026-10-21', '20'), linha('AD1', '2026-07-24', '5')]);
+    for (let i = 0; i < 20; i++) {
+      if ((await prisma.contaAnuncio.findUniqueOrThrow({ where: { id: contaAnuncioId } })).cargaConcluidaEm) return;
+      expect(await sinc.executarProxima(AGORA)).toBe(true);
+    }
+    throw new Error('a carga não terminou');
   }
 
-  it('conta nova: sincroniza entidades e carrega 90 dias pelo relatório assíncrono', async () => {
+  it('conta nova: sincroniza entidades e carrega 90 dias em blocos de 7, do mais recente para trás', async () => {
     await fazerCarga();
 
-    const criacao = meta.chamadas.find((c) => c.metodo === 'POST') as Requisicao;
-    expect(criacao.caminho).toBe('act_111/insights');
-    expect(JSON.parse(criacao.params.get('time_range')!)).toEqual({ since: '2026-07-24', until: '2026-10-21' });
-    expect(criacao.params.get('level')).toBe('ad');
-    expect(criacao.params.get('time_increment')).toBe('1');
+    expect(meta.chamadas.some((c) => c.metodo === 'POST')).toBe(false);
+    const blocos = intervalos();
+    expect(blocos).toHaveLength(13);
+    expect(blocos[0]).toEqual({ since: '2026-10-15', until: '2026-10-21' });
+    expect(blocos[1]).toEqual({ since: '2026-10-08', until: '2026-10-14' });
+    expect(blocos.at(-1)).toEqual({ since: '2026-07-24', until: '2026-07-29' });
+    const consulta = meta.chamadas.find((c) => c.caminho === 'act_111/insights') as Requisicao;
+    expect(consulta.params.get('level')).toBe('ad');
+    expect(consulta.params.get('time_increment')).toBe('1');
+    // Entidades só uma vez, na primeira rodada.
+    expect(meta.chamadas.filter((c) => c.caminho === 'act_111/campaigns')).toHaveLength(1);
 
     expect(await prisma.campanha.findFirst({ where: { contaAnuncioId } })).toMatchObject({ nome: 'Black Friday', objetivo: 'OUTCOME_LEADS' });
     expect(String((await prisma.campanha.findFirstOrThrow()).orcamentoDiario)).toBe('50');
@@ -115,6 +130,7 @@ describe('sincronização com o Meta', () => {
 
     const insights = await prisma.insightDiario.findMany({ orderBy: { data: 'asc' } });
     expect(insights.map((i) => [i.anuncioIdMeta, i.data.toISOString().slice(0, 10), String(i.investimento), i.conversas])).toEqual([
+      ['AD1', '2026-07-24', '5', 3],
       ['AD1', '2026-10-20', '100.5', 3],
       ['AD2', '2026-10-21', '20', 3],
     ]);
@@ -128,6 +144,27 @@ describe('sincronização com o Meta', () => {
     expect(await sinc.executarProxima(AGORA)).toBe(false);
   });
 
+  it('bloqueio do Meta no meio da carga: guarda os blocos que vieram e não refaz as entidades', async () => {
+    comInsights([linha('AD1', '2026-10-20', '100.50')]);
+    expect(await sinc.executarProxima(AGORA)).toBe(true);
+    meta.get('act_111/insights', erroMeta(80004, 'There have been too many calls'));
+    expect(await sinc.executarProxima(AGORA)).toBe(true);
+
+    let conta = await prisma.contaAnuncio.findUniqueOrThrow({ where: { id: contaAnuncioId } });
+    expect(conta).toMatchObject({ cargaConcluidaEm: null, ultimoErro: MENSAGEM_LIMITE, proximaEntidadesEm: minutos(360) });
+    expect(conta.cargaDesde?.toISOString().slice(0, 10)).toBe('2026-10-15');
+    expect(await prisma.insightDiario.count()).toBe(1);
+
+    // Liberado: continua do bloco seguinte, sem voltar ao começo.
+    meta.limpar();
+    comInsights([]);
+    expect(await sinc.executarProxima(minutos(61))).toBe(true);
+    expect(intervalos()).toEqual([{ since: '2026-10-08', until: '2026-10-14' }]);
+    conta = await prisma.contaAnuncio.findUniqueOrThrow({ where: { id: contaAnuncioId } });
+    expect(conta).toMatchObject({ ultimoErro: null, limitadaAte: null });
+    expect(conta.cargaDesde?.toISOString().slice(0, 10)).toBe('2026-10-08');
+  });
+
   it('a horária relê ontem e hoje e substitui o que havia nesses dias', async () => {
     await fazerCarga();
     meta.limpar();
@@ -137,9 +174,12 @@ describe('sincronização com o Meta', () => {
 
     const consulta = meta.chamadas.find((c) => c.caminho === 'act_111/insights') as Requisicao;
     expect(JSON.parse(consulta.params.get('time_range')!)).toEqual({ since: '2026-10-20', until: '2026-10-21' });
-    const insights = await prisma.insightDiario.findMany();
-    // O dia 20 sumiu da resposta (o Meta omite dia sem entrega): sai do banco também.
-    expect(insights.map((i) => [i.anuncioIdMeta, i.data.toISOString().slice(0, 10), String(i.investimento)])).toEqual([['AD1', '2026-10-21', '7.25']]);
+    const insights = await prisma.insightDiario.findMany({ orderBy: { data: 'asc' } });
+    // O dia 20 sumiu da resposta (o Meta omite dia sem entrega): sai do banco também. Fora da janela, nada muda.
+    expect(insights.map((i) => [i.anuncioIdMeta, i.data.toISOString().slice(0, 10), String(i.investimento)])).toEqual([
+      ['AD1', '2026-07-24', '5'],
+      ['AD1', '2026-10-21', '7.25'],
+    ]);
   });
 
   it('token recusado: marca a conexão para reconectar e para de sincronizar', async () => {
@@ -155,7 +195,7 @@ describe('sincronização com o Meta', () => {
   });
 
   it('erro passageiro: guarda a mensagem, libera a trava e tenta de novo em 15 minutos', async () => {
-    meta.post('act_111/insights', erroMeta(100, 'Invalid parameter'));
+    meta.get('act_111/insights', erroMeta(100, 'Invalid parameter'));
     expect(await sinc.executarProxima(AGORA)).toBe(true);
     const conta = await prisma.contaAnuncio.findUniqueOrThrow({ where: { id: contaAnuncioId } });
     expect(conta).toMatchObject({ cargaConcluidaEm: null, ultimoErro: 'Invalid parameter', emExecucaoAte: null, proximaHorariaEm: minutos(15) });
@@ -163,7 +203,7 @@ describe('sincronização com o Meta', () => {
   });
 
   it('limite do Meta: tenta de novo depois do tempo que ele pede', async () => {
-    meta.post('act_111/insights', {
+    meta.get('act_111/insights', {
       ...erroMeta(80004, 'There have been too many calls'),
       cabecalhos: { 'x-business-use-case-usage': JSON.stringify({ '1': [{ call_count: 100, estimated_time_to_regain_access: 40 }] }) },
     });
@@ -210,7 +250,7 @@ describe('sincronização com o Meta', () => {
     // O registro é gravado em segundo plano para não atrasar a chamada ao Meta.
     await new Promise((fim) => setTimeout(fim, 100));
     const registros = await prisma.chamadaMeta.findMany({ where: { contaId: r.contaId } });
-    expect(registros.map((c) => c.operacao)).toEqual(expect.arrayContaining(['campanhas', 'conjuntos', 'anuncios', 'insights-assincrono']));
+    expect(registros.map((c) => c.operacao)).toEqual(expect.arrayContaining(['campanhas', 'conjuntos', 'anuncios', 'insights']));
     expect(JSON.stringify(registros, (_, v) => (typeof v === 'bigint' ? String(v) : v))).not.toContain('EAAG');
   });
 });

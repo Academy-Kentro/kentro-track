@@ -32,6 +32,8 @@ export interface ContaAnuncio {
   definicaoLead: DefinicaoLead[];
   sincronizacao: {
     cargaConcluidaEm: string | null;
+    /** Dias da carga inicial já trazidos (de 90). */
+    diasCarregados?: number;
     ultimaEm: string | null;
     ultimoErro: string | null;
     /** O Meta pediu para esperar (ou o uso chegou perto do teto): nova tentativa só depois disso. */

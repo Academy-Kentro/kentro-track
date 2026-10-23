@@ -82,7 +82,10 @@ function SituacaoConta({ c }: { c: ContaAnuncio }) {
     );
   }
   if (s.ultimoErro) return <span class="kt-delta kt-delta-ruim">Erro: {s.ultimoErro}</span>;
-  if (!s.cargaConcluidaEm) return <span class="kt-muted">{s.emAndamento ? 'Carregando os últimos 90 dias…' : 'Na fila para carregar os últimos 90 dias.'}</span>;
+  if (!s.cargaConcluidaEm) {
+    const progresso = s.diasCarregados ? ` (${s.diasCarregados} de 90 dias, do mais recente para trás)` : '';
+    return <span class="kt-muted">{s.emAndamento || s.diasCarregados ? `Carregando os últimos 90 dias…${progresso}` : 'Na fila para carregar os últimos 90 dias.'}</span>;
+  }
   return <span class="kt-muted">Atualizada {haQuanto(s.ultimaEm)}.</span>;
 }
 

@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ContaAnuncio, Prisma } from '@prisma/client';
-import { comoData, diaNoFuso, diasEntre, proximaHoraLocal, somarDias } from '../../comum/datas';
+import { comoData, comoDia, diaNoFuso, diasEntre, proximaHoraLocal, somarDias } from '../../comum/datas';
 import { ESPERAR, Esperar } from '../../comum/fetch';
 import { instanteUtc } from '../../comum/sql';
 import { PrismaService } from '../../comum/prisma.service';
@@ -11,6 +11,11 @@ import { CAMPOS_INSIGHTS, LinhaInsight, normalizarInsight } from './insights';
 
 const MIN = 60_000;
 export const DIAS_CARGA = 90;
+/**
+ * A carga inicial vai em blocos (do mais recente para trás) com o progresso gravado: um bloqueio
+ * do Meta no meio não joga fora o que já veio, e cada bloco cabe na consulta síncrona.
+ */
+export const BLOCO_CARGA_DIAS = 7;
 /** O Meta recalcula a atribuição dos últimos dias: o recálculo diário relê esta janela. */
 export const DIAS_RECALCULO = 7;
 /** Acima disso, o relatório síncrono costuma estourar o tempo: usa o assíncrono. */
@@ -125,11 +130,16 @@ export class SincronizacaoService {
   async executar(conta: ContaAnuncio, agora = new Date()): Promise<void> {
     const tarefas = tarefasDevidas(conta, agora);
     const dados: Prisma.ContaAnuncioUpdateInput = { emExecucaoAte: null };
+    // O que já terminou nesta rodada não volta para a fila quando a seguinte falha.
+    const feitas = new Set<Tarefa>();
+    const adiarPendentes = (ate: Date) => {
+      dados.proximaHorariaEm = ate;
+      if (tarefas.includes('entidades') && !feitas.has('entidades')) dados.proximaEntidadesEm = ate;
+      if (tarefas.includes('recalculo') && !feitas.has('recalculo')) dados.proximoRecalculoEm = ate;
+    };
     const adiar = (ate: Date) => {
       dados.limitadaAte = ate;
-      dados.proximaHorariaEm = ate;
-      if (tarefas.includes('entidades')) dados.proximaEntidadesEm = ate;
-      if (tarefas.includes('recalculo')) dados.proximoRecalculoEm = ate;
+      adiarPendentes(ate);
     };
     try {
       // Uso perto do teto nas últimas chamadas: espera antes de levar o bloqueio do Meta.
@@ -146,10 +156,21 @@ export class SincronizacaoService {
           await this.sincronizarEntidades(conta, token);
           dados.proximaEntidadesEm = new Date(agora.getTime() + INTERVALO_ENTIDADES_MIN * MIN);
         } else if (tarefa === 'carga') {
-          await this.sincronizarInsights(conta, token, somarDias(hoje, -(DIAS_CARGA - 1)), hoje);
-          dados.cargaConcluidaEm = agora;
-          dados.proximaHorariaEm = new Date(agora.getTime() + INTERVALO_HORARIA_MIN * MIN);
-          dados.proximoRecalculoEm = proximaHoraLocal(agora, conta.fuso, HORA_RECALCULO);
+          const primeiro = somarDias(hoje, -(DIAS_CARGA - 1));
+          const ate = conta.cargaDesde ? somarDias(comoDia(conta.cargaDesde), -1) : hoje;
+          if (ate >= primeiro) {
+            const de = [primeiro, somarDias(ate, -(BLOCO_CARGA_DIAS - 1))].sort().at(-1)!;
+            await this.sincronizarInsights(conta, token, de, ate);
+            dados.cargaDesde = comoData(de);
+          }
+          if (ate < primeiro || (dados.cargaDesde as Date) <= comoData(primeiro)) {
+            dados.cargaConcluidaEm = agora;
+            dados.proximaHorariaEm = new Date(agora.getTime() + INTERVALO_HORARIA_MIN * MIN);
+            dados.proximoRecalculoEm = proximaHoraLocal(agora, conta.fuso, HORA_RECALCULO);
+          } else {
+            // Próximo bloco já na rodada seguinte; o freio de uso alto segura se o Meta reclamar.
+            dados.proximaHorariaEm = agora;
+          }
         } else if (tarefa === 'recalculo') {
           await this.sincronizarInsights(conta, token, somarDias(hoje, -(DIAS_RECALCULO - 1)), hoje);
           dados.proximoRecalculoEm = proximaHoraLocal(agora, conta.fuso, HORA_RECALCULO);
@@ -158,6 +179,7 @@ export class SincronizacaoService {
           await this.sincronizarInsights(conta, token, somarDias(hoje, -1), hoje);
           dados.proximaHorariaEm = new Date(agora.getTime() + INTERVALO_HORARIA_MIN * MIN);
         }
+        feitas.add(tarefa);
       }
       dados.ultimaSincronizacaoEm = agora;
       dados.ultimoErro = null;
@@ -170,10 +192,7 @@ export class SincronizacaoService {
       } else if (erro instanceof LimiteMeta) {
         adiar(new Date(agora.getTime() + Math.max(ESPERA_APOS_ERRO_MIN, Math.ceil(erro.esperarSegundos / 60)) * MIN));
       } else {
-        const depois = new Date(agora.getTime() + ESPERA_APOS_ERRO_MIN * MIN);
-        dados.proximaHorariaEm = depois;
-        if (tarefas.includes('entidades')) dados.proximaEntidadesEm = depois;
-        if (tarefas.includes('recalculo')) dados.proximoRecalculoEm = depois;
+        adiarPendentes(new Date(agora.getTime() + ESPERA_APOS_ERRO_MIN * MIN));
       }
       if (!(erro instanceof ErroMeta)) this.logger.error(erro instanceof Error ? erro.stack ?? mensagem : mensagem);
     } finally {

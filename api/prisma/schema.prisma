@@ -95,6 +95,8 @@ model ContaAnuncio {
 
   // Agenda da sincronização (a trava em_execucao_ate evita dois processos na mesma conta).
   cargaConcluidaEm      DateTime? @map("carga_concluida_em")
+  /// Dia mais antigo já carregado na carga inicial, que vai em blocos do mais recente para trás.
+  cargaDesde            DateTime? @map("carga_desde") @db.Date
   proximaHorariaEm      DateTime? @map("proxima_horaria_em")
   proximoRecalculoEm    DateTime? @map("proximo_recalculo_em")
   proximaEntidadesEm    DateTime? @map("proxima_entidades_em")

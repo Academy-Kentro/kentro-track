@@ -206,10 +206,18 @@ describe('sincronização com o Meta', () => {
     await prisma.campanha.create({ data: { ...base, idMeta: 'CAMP_VELHA', nome: 'Feirão de julho', statusEfetivo: 'ACTIVE' } });
     // O dinheiro gasto por um anúncio já arquivado: o nome vem pela consulta por ids.
     comInsights([linha('AD9', '2026-10-20', '50', { adset_id: 'SET9', campaign_id: 'CAMP9' })]);
-    meta.get('', (req) => {
-      const ids = req.params.get('ids')!.split(',');
-      return { corpo: Object.fromEntries(ids.map((id) => [id, { id, name: `Arquivado ${id}`, effective_status: 'ARCHIVED', campaign_id: 'CAMP9', adset_id: 'SET9' }])) };
-    });
+    // Listagem filtrada por id (o parâmetro "ids" saiu na v26): devolve os pedidos, arquivados inclusive.
+    const porIdNaListagem = (req: Requisicao) => {
+      const filtro = JSON.parse(req.params.get('filtering') ?? '[]') as { field: string; value: string[] }[];
+      const ids = filtro.find((f) => f.field === 'id')?.value;
+      return ids ? { corpo: { data: ids.map((id) => ({ id, name: `Arquivado ${id}`, effective_status: 'ARCHIVED', campaign_id: 'CAMP9', adset_id: 'SET9' })) } } : null;
+    };
+    meta.get('act_111/campaigns', (req) => porIdNaListagem(req) ?? { corpo: { data: [{ id: 'CAMP1', name: 'Black Friday', effective_status: 'ACTIVE' }] } });
+    meta.get('act_111/adsets', (req) => porIdNaListagem(req) ?? { corpo: { data: [] } });
+    // Anúncios: o filtro por id é recusado, e cada um vem pelo próprio id.
+    const listaAnuncios = { corpo: { data: [] } };
+    meta.get('act_111/ads', (req) => (porIdNaListagem(req) ? erroMeta(100, 'Filtering field id is invalid') : listaAnuncios));
+    meta.get('AD9', { corpo: { id: 'AD9', name: 'Arquivado AD9', effective_status: 'ARCHIVED', campaign_id: 'CAMP9', adset_id: 'SET9' } });
     expect(ca.cargaConcluidaEm).toBeNull();
     expect(await sinc.executarProxima(AGORA)).toBe(true);
 
@@ -217,8 +225,14 @@ describe('sincronização com o Meta', () => {
     expect((await prisma.campanha.findFirstOrThrow({ where: { idMeta: 'CAMP1' } })).statusEfetivo).toBe('ACTIVE');
     expect(await prisma.anuncio.findFirst({ where: { idMeta: 'AD9' } })).toMatchObject({ nome: 'Arquivado AD9', statusEfetivo: 'ARCHIVED' });
     expect(await prisma.campanha.findFirst({ where: { idMeta: 'CAMP9' } })).toMatchObject({ nome: 'Arquivado CAMP9' });
-    const porId = meta.chamadas.find((c) => c.caminho === '' && c.params.get('ids') === 'AD9')!;
-    expect(porId.params.get('filtering')).toBeNull();
+    expect(meta.chamadas.some((c) => c.params.has('ids'))).toBe(false);
+    const campanhasPorId = meta.chamadas.find((c) => c.caminho === 'act_111/campaigns' && c.params.get('filtering')?.includes('"id"'))!;
+    expect(JSON.parse(campanhasPorId.params.get('filtering')!)).toEqual([
+      { field: 'id', operator: 'IN', value: ['CAMP9'] },
+      { field: 'effective_status', operator: 'IN', value: expect.arrayContaining(['ARCHIVED', 'PAUSED']) },
+    ]);
+    // Recusa num nome que só serve de enfeite não vira erro da sincronização.
+    expect((await prisma.contaAnuncio.findUniqueOrThrow({ where: { id: contaAnuncioId } })).ultimoErro).toBeNull();
   });
 
   it('a horária relê ontem e hoje e substitui o que havia nesses dias', async () => {

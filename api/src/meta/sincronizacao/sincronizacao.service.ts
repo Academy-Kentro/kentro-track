@@ -49,6 +49,9 @@ export const MENSAGEM_LIMITE =
  */
 const ATIVOS = ['ACTIVE', 'IN_PROCESS', 'WITH_ISSUES'];
 const ATIVOS_ANUNCIO = [...ATIVOS, 'PENDING_REVIEW', 'PREAPPROVED'];
+/** Para achar pelo id o que já saiu do ar: o filtro precisa pedir todos os status, senão o Meta esconde os arquivados. */
+const TODOS = ['ACTIVE', 'PAUSED', 'DELETED', 'ARCHIVED', 'IN_PROCESS', 'WITH_ISSUES'];
+const TODOS_ANUNCIO = [...TODOS, 'CAMPAIGN_PAUSED', 'ADSET_PAUSED', 'PENDING_REVIEW', 'DISAPPROVED', 'PREAPPROVED', 'PENDING_BILLING_INFO'];
 const soAtivos = (status: string[]) => JSON.stringify([{ field: 'effective_status', operator: 'IN', value: status }]);
 
 interface EntidadeGraph {
@@ -368,28 +371,63 @@ export class SincronizacaoService {
   private async buscarFaltando(
     conta: ContaAnuncio,
     token: TokenMeta,
-    fases: { fase: FaseEntidades; params: Record<string, string | number>; gravar: (itens: EntidadeGraph[]) => Prisma.PrismaPromise<unknown>[] }[],
+    fases: { fase: FaseEntidades; caminho: string; params: Record<string, string | number>; gravar: (itens: EntidadeGraph[]) => Prisma.PrismaPromise<unknown>[] }[],
   ): Promise<void> {
-    const colunas: Record<FaseEntidades, { coluna: string; tabela: string }> = {
-      campanhas: { coluna: 'campanha_id_meta', tabela: 'campanhas' },
-      conjuntos: { coluna: 'conjunto_id_meta', tabela: 'conjuntos' },
-      anuncios: { coluna: 'anuncio_id_meta', tabela: 'anuncios' },
+    const colunas: Record<FaseEntidades, { coluna: string; tabela: string; status: string[] }> = {
+      campanhas: { coluna: 'campanha_id_meta', tabela: 'campanhas', status: TODOS },
+      conjuntos: { coluna: 'conjunto_id_meta', tabela: 'conjuntos', status: [...TODOS, 'CAMPAIGN_PAUSED'] },
+      anuncios: { coluna: 'anuncio_id_meta', tabela: 'anuncios', status: TODOS_ANUNCIO },
     };
-    for (const { fase, params, gravar } of fases) {
-      const { coluna, tabela } = colunas[fase];
+    // Se o Meta recusar o filtro por id na listagem, o resto desta rodada vai um por um.
+    let umPorUm = false;
+    for (const { fase, caminho, params, gravar } of fases) {
+      const { coluna, tabela, status } = colunas[fase];
       const faltando = await this.prisma.$queryRaw<{ id: string }[]>`
         SELECT DISTINCT i.${Prisma.raw(coluna)} AS id FROM insights_diarios i
         WHERE i.conta_anuncio_id = ${conta.id}::uuid AND i.${Prisma.raw(coluna)} <> ''
           AND NOT EXISTS (SELECT 1 FROM ${Prisma.raw(tabela)} e WHERE e.conta_anuncio_id = i.conta_anuncio_id AND e.id_meta = i.${Prisma.raw(coluna)})
         LIMIT ${MAX_IDS_FALTANDO}`;
       const { filtering: _, limit: __, ...campos } = params;
-      for (let i = 0; i < faltando.length; i += IDS_POR_CONSULTA) {
-        const lote = faltando.slice(i, i + IDS_POR_CONSULTA).map((f) => f.id);
-        const { dados, uso } = await this.graph.getComUso<Record<string, EntidadeGraph>>(token, '', { ...campos, ids: lote.join(',') }, { contaId: conta.contaId, operacao: `${fase}-por-id` });
-        await this.prisma.$transaction(gravar(Object.values(dados).filter((e) => e && e.id)));
-        if (uso && uso.pct >= USO_PARAR_PCT) {
-          throw new LimiteMeta(Math.max(PAUSA_USO_ALTO_MIN * 60, Math.ceil(uso.liberaEmSegundos)), 'Uso da API do Meta perto do limite: a leitura pausou antes do bloqueio.');
+      const ctx = { contaId: conta.contaId, operacao: `${fase}-por-id` };
+      try {
+        for (let i = 0; i < faltando.length; i += IDS_POR_CONSULTA) {
+          const lote = faltando.slice(i, i + IDS_POR_CONSULTA).map((f) => f.id);
+          let itens: EntidadeGraph[] = [];
+          let uso: { pct: number; liberaEmSegundos: number } | null = null;
+          if (!umPorUm) {
+            try {
+              // O parâmetro "ids" deixou de existir na v26: o filtro por id na própria listagem, com todos os status.
+              const filtro = JSON.stringify([
+                { field: 'id', operator: 'IN', value: lote },
+                { field: 'effective_status', operator: 'IN', value: status },
+              ]);
+              const r = await this.graph.getComUso<{ data?: EntidadeGraph[] }>(token, caminho, { ...campos, filtering: filtro, limit: IDS_POR_CONSULTA }, ctx);
+              itens = r.dados.data ?? [];
+              uso = r.uso;
+            } catch (erro) {
+              if (!(erro instanceof RecusadoPeloMeta)) throw erro;
+              umPorUm = true;
+            }
+          }
+          if (umPorUm) {
+            for (const id of lote) {
+              const r = await this.graph.getComUso<EntidadeGraph>(token, id, campos, ctx).catch((erro) => {
+                if (erro instanceof RecusadoPeloMeta) return null; // apagado no Meta: fica sem nome
+                throw erro;
+              });
+              if (r?.dados?.id) itens.push(r.dados);
+              uso = r?.uso ?? uso;
+            }
+          }
+          if (itens.length) await this.prisma.$transaction(gravar(itens));
+          if (uso && uso.pct >= USO_PARAR_PCT) {
+            throw new LimiteMeta(Math.max(PAUSA_USO_ALTO_MIN * 60, Math.ceil(uso.liberaEmSegundos)), 'Uso da API do Meta perto do limite: a leitura pausou antes do bloqueio.');
+          }
         }
+      } catch (erro) {
+        // Só dá nome ao que já saiu do ar: limite e token caído seguem o caminho normal; o resto não derruba a sincronização.
+        if (erro instanceof LimiteMeta || erro instanceof TokenInvalido) throw erro;
+        this.logger.warn(`Nomes de ${fase} fora do ar (${conta.idMeta}): ${erro instanceof Error ? erro.message : erro}`);
       }
     }
   }

@@ -20,6 +20,24 @@ export interface ChavesNovas {
 
 export type DefinicaoLead = 'formulario' | 'conversa' | 'site';
 
+/** Andamento: um passo do funil. Venda: pede o valor e entra na receita. Perda: pede o motivo. */
+export type TipoEtapa = 'andamento' | 'venda' | 'perda';
+
+/** Etapa do funil que o admin define em Configurações › Etapas do funil. */
+export interface EtapaFunil {
+  id: string;
+  chave: string;
+  nome: string;
+  tipo: TipoEtapa;
+  ordem: number;
+  /** Chegar aqui (ou além) conta como lead qualificado. */
+  qualificada: boolean;
+  eventoMeta: string | null;
+  botaoAtendente: boolean;
+  noPainel: boolean;
+  ativa: boolean;
+}
+
 export interface ContaAnuncio {
   id: string;
   idMeta: string;
@@ -90,6 +108,8 @@ export interface VisaoGeral extends Situacao {
   metricas: Metricas;
   organicos: number;
   serie: { data: string; investimento: number; leads: number; conversas: number; impressoes: number; cliquesLink: number }[];
+  /** O funil do atendimento nas etapas da conta: quem chegou a cada uma ou além. */
+  funil?: { id: string; nome: string; tipo: TipoEtapa; leads: number }[];
   contasAnuncio: number;
 }
 

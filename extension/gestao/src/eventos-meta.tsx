@@ -5,7 +5,8 @@ import { Icone } from '../../comum/icones';
 import { inteiro } from '../../comum/formato';
 import { avisar, type Omni } from '../../comum/omni';
 
-type Gatilho = 'lead_recebido' | 'qualificado' | 'venda' | 'descartado';
+/** Só a chegada do lead fica aqui: o evento de cada etapa do funil é escolhido na etapa. */
+type Gatilho = 'lead_recebido';
 
 interface Config {
   ativo: boolean;
@@ -19,14 +20,11 @@ interface Config {
 
 interface Envios {
   ultimos30Dias: Partial<Record<'pendente' | 'enviado' | 'erro' | 'descartado', number>>;
-  envios: { id: string; gatilho: Gatilho; evento: string; status: string; teste: boolean; tentativas: number; erro: string | null; lead: string | null; criadoEm: string; enviadoEm: string | null }[];
+  envios: { id: string; gatilho: string; evento: string; status: string; teste: boolean; tentativas: number; erro: string | null; lead: string | null; criadoEm: string; enviadoEm: string | null }[];
 }
 
 const GATILHOS: { id: Gatilho; rotulo: string; ajuda: string }[] = [
   { id: 'lead_recebido', rotulo: 'Lead chegou ao atendimento', ajuda: 'Só leads de anúncio de WhatsApp ou link (o formulário o Meta já conta).' },
-  { id: 'qualificado', rotulo: 'Qualificado', ajuda: 'Botão Qualificado no painel ou evento da automação.' },
-  { id: 'venda', rotulo: 'Venda', ajuda: 'Vai com o valor da venda. Venda direta também envia o Qualificado.' },
-  { id: 'descartado', rotulo: 'Descartado', ajuda: 'Normalmente desligado.' },
 ];
 
 /** Eventos padrão do Meta; "Outro" permite o nome personalizado que a conta já usa (ex.: do n8n). */
@@ -34,7 +32,7 @@ const PADRAO = ['Lead', 'QualifiedLead', 'Purchase', 'CompleteRegistration', 'Co
 
 const STATUS: Record<string, string> = { pendente: 'Na fila', enviado: 'Recebido', erro: 'Erro', descartado: 'Descartado' };
 
-function SeletorEvento({ valor, mudar }: { valor: string | null; mudar: (v: string | null) => void }) {
+export function SeletorEvento({ valor, mudar }: { valor: string | null; mudar: (v: string | null) => void }) {
   const personalizado = valor !== null && !PADRAO.includes(valor);
   const [outro, setOutro] = useState(personalizado ? valor! : '');
   return (
@@ -311,6 +309,10 @@ export function EventosMeta({ omni, api }: { omni: Omni; api: Api }) {
           ))}
         </tbody>
       </table>
+      <p class="kt-muted">
+        O evento de cada etapa (qualificado, agendamento, venda…) é escolhido na própria etapa, em <strong>Etapas do funil</strong>. Etapa de venda vai com o valor;
+        marcar uma etapa também envia as anteriores que ainda não foram.
+      </p>
 
       <h3 class="kt-subtitulo">Testar</h3>
       <div class="kt-linha-acoes">

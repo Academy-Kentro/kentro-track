@@ -388,12 +388,22 @@ describe('gestão: funil do atendimento, leads, equipe e integração', () => {
   });
 
   it('aba Leads: filtra por etapa e pagina, sem botão de abrir conversa', async () => {
-    const falso = await montar({ http: api({ '/v1/conta': CONTA, '/v1/painel/filtros': FILTROS, '/v1/painel/leads': LEADS }) });
+    const etapas = [
+      { id: 'e-agendou', chave: 'agendou', nome: 'Agendou', tipo: 'andamento', ordem: 1, qualificada: true, eventoMeta: null, botaoAtendente: true, noPainel: true, ativa: true },
+      { id: 'e-visitou', chave: 'visitou', nome: 'Visitou', tipo: 'andamento', ordem: 2, qualificada: false, eventoMeta: null, botaoAtendente: true, noPainel: false, ativa: true },
+      { id: 'e-vendeu', chave: 'venda', nome: 'Vendeu', tipo: 'venda', ordem: 3, qualificada: false, eventoMeta: null, botaoAtendente: true, noPainel: true, ativa: true },
+    ];
+    const comEtapas = { ...LEADS, etapas, porEtapa: { 'e-vendeu': 1, novo: 1 }, itens: [{ ...LEADS.itens[0], etapaId: 'e-vendeu', etapaNome: 'Vendeu', etapaTipo: 'venda' }, LEADS.itens[1]] };
+    const falso = await montar({ http: api({ '/v1/conta': CONTA, '/v1/painel/filtros': FILTROS, '/v1/painel/leads': comEtapas }) });
     await clicar(botao('Leads'));
     expect(texto()).toContain('Maria · (38) 9****-0000');
     expect(texto()).toContain('Black Friday › Vídeo *');
-    await clicar(botao('Vendas ('));
-    expect(new URL(falso.chamadas.at(-1)!.url).searchParams.get('etapa')).toBe('venda');
+    // Os filtros são as etapas visíveis da conta (Visitou está oculta dos painéis).
+    const chips = [...raiz.querySelectorAll('.kt-chips button')].map((b) => b.textContent?.replace(/\s*\(\d+\)$/, ''));
+    expect(chips).toEqual(['Todas', 'Novos', 'Em atendimento', 'Agendou', 'Vendeu']);
+    expect(raiz.querySelector('tbody .kt-etapa')?.textContent).toBe('Vendeu');
+    await clicar(botao('Vendeu ('));
+    expect(new URL(falso.chamadas.at(-1)!.url).searchParams.get('etapa')).toBe('e-vendeu');
     await clicar(botao('Próximos'));
     expect(new URL(falso.chamadas.at(-1)!.url).searchParams.get('pagina')).toBe('2');
     expect(botao('Abrir conversa')).toBeUndefined();
@@ -466,6 +476,79 @@ describe('gestão: funil do atendimento, leads, equipe e integração', () => {
   });
 });
 
+describe('gestão: etapas do funil', () => {
+  const ETAPAS = [
+    { id: 'e1', chave: 'qualificado', nome: 'Qualificado', tipo: 'andamento', ordem: 1, qualificada: true, eventoMeta: 'QualifiedLead', botaoAtendente: true, noPainel: true, ativa: true },
+    { id: 'e2', chave: 'venda', nome: 'Venda', tipo: 'venda', ordem: 2, qualificada: false, eventoMeta: 'Purchase', botaoAtendente: true, noPainel: true, ativa: true },
+  ];
+
+  it('Configurações: renomeia, acrescenta, reordena, desliga o botão e salva a lista na ordem', async () => {
+    const falso = await montar({
+      http: (c) => {
+        const caminho = new URL(c.url).pathname;
+        if (caminho === '/v1/etapas') return ok({ etapas: ETAPAS });
+        return api({ '/v1/conta': CONTA, '/v1/painel/filtros': FILTROS, '/v1/painel/visao-geral': VISAO, '/v1/meta/conexao': { conectado: false, loginMetaDisponivel: false, contasAnuncio: [] } })(c);
+      },
+    });
+    await clicar(botao('Configurações'));
+    const secao = [...raiz.querySelectorAll('section')].find((s) => s.textContent?.startsWith('Etapas do funil'))!;
+    const nomes = () => [...secao.querySelectorAll('.kt-etapa-nome input')] as HTMLInputElement[];
+    expect(nomes().map((i) => i.value)).toEqual(['Qualificado', 'Venda']);
+    expect((botao('Salvar etapas') as HTMLButtonElement).disabled).toBe(true);
+
+    await act(async () => {
+      nomes()[1].value = 'Vendeu';
+      nomes()[1].dispatchEvent(new Event('input'));
+    });
+    await clicar(botao('Adicionar etapa'));
+    await act(async () => {
+      nomes()[2].value = 'Agendou';
+      nomes()[2].dispatchEvent(new Event('input'));
+    });
+    // Agendou sobe para antes de Vendeu e não vira botão no atendimento.
+    await clicar(secao.querySelector('[aria-label="Subir Agendou"]')!);
+    const botaoAtendente = [...secao.querySelectorAll('li')][1].querySelectorAll('.kt-interruptor input')[1] as HTMLInputElement;
+    await act(async () => {
+      botaoAtendente.click();
+    });
+    await clicar(botao('Salvar etapas'));
+
+    const put = falso.chamadas.find((c) => c.method === 'PUT' && c.url.endsWith('/v1/etapas'))!;
+    const etapas = (put.corpo as { etapas: Record<string, unknown>[] }).etapas;
+    expect(etapas.map((e) => [e.id, e.nome, e.tipo, e.botaoAtendente])).toEqual([
+      ['e1', 'Qualificado', 'andamento', true],
+      [undefined, 'Agendou', 'andamento', false],
+      ['e2', 'Vendeu', 'venda', true],
+    ]);
+    expect(etapas.every((e) => !('chave' in e) && !('ordem' in e) && !('local' in e))).toBe(true);
+  });
+
+  it('Equipe e Visão geral seguem as etapas da conta', async () => {
+    const etapas = [
+      { id: 'e1', nome: 'Agendou', tipo: 'andamento' },
+      { id: 'e2', nome: 'Vendeu', tipo: 'venda' },
+    ];
+    await montar({
+      http: api({
+        '/v1/conta': CONTA,
+        '/v1/painel/filtros': FILTROS,
+        '/v1/painel/visao-geral': { ...VISAO, metricas: metricas({ leads: 50, entradas: 20 }), funil: etapas.map((e, i) => ({ ...e, leads: 10 - i * 6 })) },
+        '/v1/painel/equipe': {
+          moeda: 'BRL',
+          etapas,
+          atendentes: [{ id: '7', nome: 'Ana', entradas: 10, qualificados: 5, vendas: 2, descartados: 3, receita: 4000, taxaVenda: 20, minutosAteAtender: 95, porEtapa: { e1: 6, e2: 2 } }],
+        },
+      }),
+    });
+    const funil = [...raiz.querySelectorAll('.kt-funil-tabela tr')].map((tr) => tr.querySelector('th')?.textContent);
+    expect(funil).toEqual(['Leads no Meta', 'Chegaram ao atendimento', 'Agendou', 'Vendeu']);
+
+    await clicar(botao('Equipe'));
+    expect([...raiz.querySelectorAll('thead th')].map((th) => th.textContent)).toEqual(['Atendente', 'Leads', 'Agendou', 'Vendeu', 'Taxa de venda', 'Receita', 'Tempo até atender']);
+    expect(raiz.querySelector('tbody tr')!.textContent!.replace(/\s+/g, ' ')).toContain('Ana1062');
+  });
+});
+
 describe('gestão: eventos para o Meta', () => {
   const CONFIG = {
     ativo: false,
@@ -474,7 +557,7 @@ describe('gestão: eventos para o Meta', () => {
     tokenProprio: false,
     wabaId: null,
     codigoTeste: null,
-    mapeamento: { lead_recebido: 'Lead', qualificado: 'QualifiedLead', venda: 'Purchase', descartado: null },
+    mapeamento: { lead_recebido: 'Lead' },
   };
   const ENVIOS = {
     ultimos30Dias: { enviado: 12, erro: 1 },
@@ -506,7 +589,7 @@ describe('gestão: eventos para o Meta', () => {
     return falso;
   }
 
-  it('escolhe o pixel da lista, liga o envio, muda o evento da venda e salva só o que mudou', async () => {
+  it('escolhe o pixel da lista, liga o envio, muda o evento da chegada do lead e salva só o que mudou', async () => {
     const falso = await abrir();
     expect(texto()).toContain('desligue a outra no mesmo dia');
     await clicar(botao('Buscar pixels'));
@@ -515,10 +598,12 @@ describe('gestão: eventos para o Meta', () => {
     await act(async () => {
       ativo.click();
     });
-    const venda = [...raiz.querySelectorAll('.kt-mapeamento tr')].find((tr) => tr.textContent?.startsWith('Venda'))!.querySelector('select')!;
+    // Só a chegada do lead fica aqui: as etapas do funil têm o evento delas.
+    expect([...raiz.querySelectorAll('.kt-mapeamento tr')]).toHaveLength(1);
+    const chegada = raiz.querySelector('.kt-mapeamento tr select') as HTMLSelectElement;
     await act(async () => {
-      venda.value = 'CompleteRegistration';
-      venda.dispatchEvent(new Event('change'));
+      chegada.value = 'CompleteRegistration';
+      chegada.dispatchEvent(new Event('change'));
     });
     await clicar(botao('Salvar'));
     const put = falso.chamadas.find((c) => c.method === 'PUT' && c.url.endsWith('/v1/eventos/configuracao'))!;
@@ -526,7 +611,7 @@ describe('gestão: eventos para o Meta', () => {
       datasetId: '555666777',
       datasetNome: 'Pixel Loja',
       ativo: true,
-      mapeamento: { lead_recebido: 'Lead', qualificado: 'QualifiedLead', venda: 'CompleteRegistration', descartado: null },
+      mapeamento: { lead_recebido: 'CompleteRegistration' },
     });
   });
 

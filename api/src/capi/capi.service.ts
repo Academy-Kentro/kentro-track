@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { EnvioCapi, Lead, Prisma } from '@prisma/client';
+import { EnvioCapi, EtapaFunil, Lead, Prisma } from '@prisma/client';
 import { ConfigApp, CONFIG_APP } from '../comum/config';
 import { cifrar, decifrar } from '../comum/cripto';
 import { ErroApi } from '../comum/erros';
@@ -113,14 +113,33 @@ export class CapiService {
    * o event_id é fixo por lead e gatilho, e o par (pixel, event_id) é único.
    */
   async enfileirar(lead: Lead, gatilho: Gatilho, quando = new Date()): Promise<void> {
-    if (lead.origem === 'organico') return; // sem anúncio, o evento não ajuda a otimizar campanha
     if (gatilho === 'lead_recebido' && lead.origem === 'formulario') return; // o Meta já contou o formulário
+    await this.gravar(lead, gatilho, (config) => lerMapeamento(config.mapeamento)[gatilho], false, quando);
+  }
+
+  /**
+   * O evento da etapa do funil (o que o admin configurou nela). O event_id usa a chave da etapa:
+   * as de antes (qualificado, venda, descartado) continuam com o mesmo id e não saem em dobro.
+   */
+  async enfileirarEtapa(lead: Lead, etapa: EtapaFunil, quando = new Date()): Promise<void> {
+    if (!etapa.eventoMeta) return;
+    await this.gravar(lead, etapa.chave, () => etapa.eventoMeta, etapa.tipo === 'venda', quando);
+  }
+
+  private async gravar(
+    lead: Lead,
+    gatilho: string,
+    nomeDoEvento: (config: { mapeamento: Prisma.JsonValue }) => string | null,
+    comValor: boolean,
+    quando: Date,
+  ): Promise<void> {
+    if (lead.origem === 'organico') return; // sem anúncio, o evento não ajuda a otimizar campanha
     const config = await this.prisma.configCapi.findUnique({ where: { contaId: lead.contaId } });
     if (!config?.ativo || !config.datasetId) return;
-    const eventName = lerMapeamento(config.mapeamento)[gatilho];
+    const eventName = nomeDoEvento(config);
     if (!eventName) return;
     const { moeda } = await this.prisma.conta.findUniqueOrThrow({ where: { id: lead.contaId }, select: { moeda: true } });
-    const { eventId, payload } = montarEvento(lead, gatilho, eventName, { moeda, wabaId: config.wabaId, quando });
+    const { eventId, payload } = montarEvento(lead, gatilho, eventName, { moeda, wabaId: config.wabaId, quando }, comValor);
     try {
       await this.prisma.envioCapi.create({
         data: {
@@ -272,7 +291,7 @@ export class CapiService {
   /** O que o painel do atendente mostra: o evento de cada etapa e se o Meta já recebeu. */
   async doLead(leadId: string) {
     const envios = await this.prisma.envioCapi.findMany({ where: { leadId }, orderBy: { id: 'asc' } });
-    return envios.map((e) => ({ gatilho: e.gatilho as Gatilho, evento: e.eventName, status: e.status }));
+    return envios.map((e) => ({ gatilho: e.gatilho, evento: e.eventName, status: e.status }));
   }
 }
 

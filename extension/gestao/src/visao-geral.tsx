@@ -81,12 +81,17 @@ function Cartao({ indicador, dados }: { indicador: Indicador; dados: Dados }) {
  * Funil do anúncio à venda: uma barra por etapa, todas na mesma escala (os leads do Meta), com a
  * passagem de uma etapa para a outra em %. É uma série só: a cor é uma, o rótulo diz o que é.
  */
-function Funil({ m }: { m: Metricas }) {
+function Funil({ m, funil }: { m: Metricas; funil?: { id: string; nome: string; leads: number }[] }) {
+  // As etapas são as da conta (Configurações › Etapas do funil); API sem elas mantém as de antes.
   const etapas = [
     { rotulo: 'Leads no Meta', valor: m.leads },
     { rotulo: 'Chegaram ao atendimento', valor: m.entradas },
-    { rotulo: 'Qualificados', valor: m.qualificados },
-    { rotulo: 'Vendas', valor: m.vendas },
+    ...(funil
+      ? funil.map((e) => ({ rotulo: e.nome, valor: e.leads }))
+      : [
+          { rotulo: 'Qualificados', valor: m.qualificados },
+          { rotulo: 'Vendas', valor: m.vendas },
+        ]),
   ];
   const maximo = Math.max(1, ...etapas.map((e) => e.valor));
   return (
@@ -103,7 +108,7 @@ function Funil({ m }: { m: Metricas }) {
             const anterior = i > 0 ? etapas[i - 1].valor : null;
             const passagem = anterior ? (e.valor / anterior) * 100 : null;
             return (
-              <tr key={e.rotulo}>
+              <tr key={`${i}-${e.rotulo}`}>
                 <th scope="row">{e.rotulo}</th>
                 <td class="kt-funil-barra-celula">
                   <div class="kt-funil-trilho">
@@ -196,7 +201,7 @@ export function VisaoGeral({ carga }: { carga: Carga<Dados> }) {
           formatar={(v) => `${inteiro(v)} ${v === 1 ? 'lead' : 'leads'}`}
           formatarEixo={compacto}
         />
-        {!semAtendimento && <Funil m={dados.metricas} />}
+        {!semAtendimento && <Funil m={dados.metricas} funil={dados.funil} />}
       </section>
     </div>
   );

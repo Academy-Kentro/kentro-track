@@ -1,10 +1,11 @@
 import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
-import { IsIn, IsNumber, IsObject, IsOptional, IsString, Length, Matches, Max, Min } from 'class-validator';
+import { IsNumber, IsObject, IsOptional, IsString, Length, Matches, Max, Min } from 'class-validator';
 import { ErroApi } from '../comum/erros';
 import { PrismaService } from '../comum/prisma.service';
 import { ChaveContaGuard, Papeis, RequisicaoDaConta } from '../contas/chave-conta.guard';
-import { Autor, EtapaDoAtendente, LeadsService } from './leads.service';
+import { EtapasService } from '../etapas/etapas.service';
+import { Autor, LeadsService } from './leads.service';
 
 export class VincularDto {
   @Matches(/^\d{1,20}$/)
@@ -31,11 +32,11 @@ export class VincularDto {
   anuncio?: Record<string, unknown>;
 }
 
-const ETAPAS: EtapaDoAtendente[] = ['em_atendimento', 'qualificado', 'venda', 'descartado'];
-
 export class EtapaDto {
-  @IsIn(ETAPAS)
-  etapa!: EtapaDoAtendente;
+  /** "em_atendimento" (reabrir), o id da etapa do funil ou a chave dela. */
+  @IsString()
+  @Length(1, 60)
+  etapa!: string;
 
   @IsOptional()
   @IsNumber({ maxDecimalPlaces: 2 })
@@ -94,7 +95,6 @@ export class AtendimentoController {
   }
 }
 
-const EVENTOS = ['chat_iniciado', 'qualificado', 'venda', 'descartado'] as const;
 
 /** Número que a automação manda como texto ("1.234,50", "1234.5"). */
 function valorDe(v: unknown): number | undefined {
@@ -113,6 +113,7 @@ function valorDe(v: unknown): number | undefined {
 export class KentroController {
   constructor(
     private readonly leads: LeadsService,
+    private readonly etapas: EtapasService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -124,8 +125,15 @@ export class KentroController {
     if (conta.status === 'bloqueada') throw new ErroApi(403, 'CONTA_BLOQUEADA', 'Conta bloqueada no Kentro Track.');
 
     const evento = String(corpo?.evento ?? '').trim();
-    if (!(EVENTOS as readonly string[]).includes(evento)) {
-      throw new ErroApi(400, 'EVENTO_INVALIDO', `Evento desconhecido. Use: ${EVENTOS.join(', ')}.`);
+    // Além de chat_iniciado, cada etapa do funil é um evento (a chave dela; os nomes de antes valem).
+    if (evento !== 'chat_iniciado' && evento !== 'em_atendimento') {
+      try {
+        await this.etapas.resolver(conta.id, evento);
+      } catch (e) {
+        if (!(e instanceof ErroApi) || e.codigo !== 'ETAPA_DESCONHECIDA') throw e;
+        const chaves = (await this.etapas.listar(conta.id)).filter((x) => x.ativa).map((x) => x.chave);
+        throw new ErroApi(400, 'EVENTO_INVALIDO', `Evento desconhecido. Use: chat_iniciado, ${chaves.join(', ')}.`);
+      }
     }
     const autor: Autor = { tipo: 'kentro', nome: 'Automação da Kentro' };
     const anuncio = corpo.anuncio && typeof corpo.anuncio === 'object' ? (corpo.anuncio as Record<string, unknown>) : null;
@@ -141,7 +149,7 @@ export class KentroController {
     // chat_iniciado pode ser reenviado (é idempotente): é assim que a automação conta quem assumiu.
     const lead = await this.leads.definirAtendente(await this.leads.registrarAtendimento(conta.id, atendimento, autor, false), corpo.atendenteId, corpo.atendente);
     if (evento !== 'chat_iniciado') {
-      await this.leads.mudarEtapa(conta.id, lead, evento as Exclude<(typeof EVENTOS)[number], 'chat_iniciado'>, { valor: valorDe(corpo.valor), motivo: typeof corpo.motivo === 'string' ? corpo.motivo : undefined }, autor);
+      await this.leads.mudarEtapa(conta.id, lead, evento, { valor: valorDe(corpo.valor), motivo: typeof corpo.motivo === 'string' ? corpo.motivo : undefined }, autor);
     }
     return { ok: true, leadId: lead.id };
   }
@@ -154,6 +162,7 @@ export class KentroController {
     return this.descrever(req.conta.id, req.conta.versaoWebhook);
   }
 
+
   @Post('integracao/rotacionar')
   @HttpCode(200)
   @UseGuards(ChaveContaGuard)
@@ -163,16 +172,18 @@ export class KentroController {
     return this.descrever(conta.id, conta.versaoWebhook);
   }
 
-  private descrever(contaId: string, versao: number) {
+  /** O que o admin cola na automação: a URL e um corpo por evento (a chegada e cada etapa ativa do funil). */
+  private async descrever(contaId: string, versao: number) {
     const atendente = { atendenteId: '{{chat_recent_agent_id}}', atendente: '{{chat_agent.agent_full_name}}' };
     const base = { chatId: '{{chat_id}}', telefone: '{{chat_client_number}}', nome: '{{chat_client_name}}', contatoId: '{{chat_contact_id}}', ...atendente };
+    const etapas = (await this.etapas.listar(contaId)).filter((e) => e.ativa);
+    const extra = (tipo: string) => (tipo === 'venda' ? { valor: '{{opportunity_value}}' } : tipo === 'perda' ? { motivo: 'Sem interesse' } : {});
     return {
       url: this.leads.urlWebhook(contaId, versao),
+      etapas: etapas.map((e) => ({ chave: e.chave, nome: e.nome, tipo: e.tipo })),
       exemplos: {
         chat_iniciado: { evento: 'chat_iniciado', ...base, anuncio: { url: '{{message_ad_url}}', titulo: '{{message_ad_title}}', texto: '{{message_ad_body}}' } },
-        qualificado: { evento: 'qualificado', chatId: '{{chat_id}}', ...atendente },
-        venda: { evento: 'venda', chatId: '{{chat_id}}', valor: '{{opportunity_value}}', ...atendente },
-        descartado: { evento: 'descartado', chatId: '{{chat_id}}', motivo: 'Sem interesse', ...atendente },
+        ...Object.fromEntries(etapas.map((e) => [e.chave, { evento: e.chave, chatId: '{{chat_id}}', ...extra(e.tipo), ...atendente }])),
       },
     };
   }

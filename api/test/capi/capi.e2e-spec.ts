@@ -47,18 +47,14 @@ describe('montarEvento', () => {
   });
 
   it('venda leva valor e moeda', () => {
-    const { payload } = montarEvento(lead({ valorVenda: 1234.5 as never }), 'venda', 'Purchase', ctx);
+    const { payload } = montarEvento(lead({ valorVenda: 1234.5 as never }), 'venda', 'Purchase', ctx, true);
     expect(payload.custom_data).toEqual({ value: 1234.5, currency: 'BRL' });
   });
 
-  it('mapeamento: aceita nome de evento válido e null; ignora o resto', () => {
+  it('mapeamento: só a chegada do lead (as etapas têm o evento delas); aceita nome válido e null', () => {
     expect(lerMapeamento(undefined)).toEqual(MAPEAMENTO_PADRAO);
-    expect(lerMapeamento({ venda: 'CompraKentro', descartado: null, qualificado: 'com espaço', lead_recebido: 42 })).toEqual({
-      lead_recebido: 'Lead',
-      qualificado: 'QualifiedLead',
-      venda: 'CompraKentro',
-      descartado: null,
-    });
+    expect(lerMapeamento({ venda: 'CompraKentro', lead_recebido: 42 })).toEqual({ lead_recebido: 'Lead' });
+    expect(lerMapeamento({ lead_recebido: null })).toEqual({ lead_recebido: null });
   });
 });
 
@@ -115,7 +111,7 @@ describe('API de Conversões', () => {
       tokenProprio: true,
       wabaId: '1234567',
       codigoTeste: null,
-      mapeamento: { lead_recebido: 'Lead', qualificado: 'QualifiedLead', venda: 'Purchase', descartado: 'LeadPerdido' },
+      mapeamento: { lead_recebido: 'Lead' },
     });
     expect(JSON.stringify(salvo)).not.toContain('EAAPIXEL');
     expect((await config({ token: null })).body.tokenProprio).toBe(false);
@@ -177,6 +173,37 @@ describe('API de Conversões', () => {
     await etapa(lead.id, { etapa: 'em_atendimento' });
     await etapa(lead.id, { etapa: 'venda', valor: 20 });
     expect(await prisma.envioCapi.count({ where: { gatilho: 'venda' } })).toBe(1);
+  });
+
+  it('etapas personalizadas: cada uma manda o evento dela; venda direta leva os das etapas anteriores', async () => {
+    await ligar({ mapeamento: { lead_recebido: null } });
+    const atuais = (await comChave(http().get('/v1/etapas'), r.chaveAdmin)).body.etapas as { id: string; chave: string }[];
+    const salvas = await comChave(http().put('/v1/etapas'), r.chaveAdmin).send({
+      etapas: [
+        { nome: 'Engajou', tipo: 'andamento', eventoMeta: 'Contact' },
+        { nome: 'Agendou', tipo: 'andamento', qualificada: true, eventoMeta: 'Schedule' },
+        { nome: 'Visitou', tipo: 'andamento' },
+        { id: atuais.find((e) => e.chave === 'venda')!.id, nome: 'Vendeu', tipo: 'venda', eventoMeta: 'Purchase' },
+        { id: atuais.find((e) => e.chave === 'descartado')!.id, nome: 'Desqualificado', tipo: 'perda', eventoMeta: 'LeadPerdido' },
+      ],
+    });
+    const etapa_ = (nome: string) => (salvas.body.etapas as { id: string; nome: string }[]).find((e) => e.nome === nome)!.id;
+
+    const { body: lead } = await vincular({ chatId: '711', anuncio: { titulo: 'Promo' } });
+    await etapa(lead.id, { etapa: etapa_('Vendeu'), valor: 300 });
+    expect(await capi.enviarPendentes()).toBe(3);
+    const enviados = corpos.map((c) => (c as { data: { event_name: string; event_id: string; custom_data?: object }[] }).data[0]);
+    expect(enviados.map((e) => [e.event_name, e.event_id])).toEqual([
+      ['Contact', `kt-${lead.id}-engajou`],
+      ['Schedule', `kt-${lead.id}-agendou`],
+      ['Purchase', `kt-${lead.id}-venda`],
+    ]);
+    expect(enviados[2].custom_data).toEqual({ value: 300, currency: 'BRL' });
+
+    // Perda manda só o evento dela.
+    const { body: outro } = await vincular({ chatId: '712', anuncio: { titulo: 'Promo' } });
+    await etapa(outro.id, { etapa: etapa_('Desqualificado'), motivo: 'Sem interesse' });
+    expect(await prisma.envioCapi.findMany({ where: { leadId: outro.id }, select: { eventName: true } })).toEqual([{ eventName: 'LeadPerdido' }]);
   });
 
   it('modo teste: manda o test_event_code junto', async () => {

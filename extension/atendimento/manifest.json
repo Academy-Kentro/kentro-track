@@ -1,7 +1,7 @@
 {
   "manifestVersion": 1,
   "id": "kentro.track",
-  "version": "0.6.8",
+  "version": "0.7.0",
   "name": "Kentro Track — Atendimento",
   "description": "De onde veio este lead: anúncio, criativo e respostas do formulário, com botões de qualificação e venda.",
   "author": { "name": "Kentro" },

@@ -350,7 +350,12 @@ describe('funil do atendimento no painel do gestor', () => {
     const maria = res.body.itens.find((l: { nome: string }) => l.nome === 'Maria');
     expect(maria).toMatchObject({ telefone: '(38) 9****-0000', campanha: 'Black Friday', anuncio: 'Vídeo depoimento', atendente: 'Ana', valorVenda: 3000, chatId: '1' });
     expect((await painel('leads', 'de=2026-10-10&ate=2026-10-16&origem=organico')).body.itens).toHaveLength(1);
-    expect((await painel('leads', 'de=2026-10-10&ate=2026-10-16&etapa=venda')).body.itens).toHaveLength(2);
+    // O filtro de etapa é o id da etapa do funil (os leads semeados ainda não têm: põe na Venda).
+    const venda = res.body.etapas.find((e: { chave: string }) => e.chave === 'venda');
+    await prisma.lead.updateMany({ where: { etapa: 'venda' }, data: { etapaId: venda.id, etapasAlcancadas: [venda.id] } });
+    expect((await painel('leads', `de=2026-10-10&ate=2026-10-16&etapa=${venda.id}`)).body.itens).toHaveLength(2);
+    expect((await painel('leads', 'de=2026-10-10&ate=2026-10-16&etapa=novo')).body.itens).toHaveLength(1);
+    expect((await painel('leads', 'de=2026-10-10&ate=2026-10-16&etapa=venda')).status).toBe(400);
     expect((await painel('leads', 'de=2026-10-10&ate=2026-10-16&origem=nada')).status).toBe(400);
   });
 

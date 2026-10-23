@@ -2,22 +2,32 @@ import { useEffect, useState } from 'preact/hooks';
 import { Api, mensagemDeErro } from '../../comum/api';
 import { Aviso, BotaoCopiar, Carregando, Secao } from '../../comum/componentes';
 import type { Omni } from '../../comum/omni';
+import type { TipoEtapa } from './tipos';
 
 interface Integracao {
   url: string;
-  exemplos: Record<'chat_iniciado' | 'qualificado' | 'venda' | 'descartado', Record<string, unknown>>;
+  /** As etapas ativas do funil: cada uma é um evento (a chave). */
+  etapas?: { chave: string; nome: string; tipo: TipoEtapa }[];
+  exemplos: Record<string, Record<string, unknown>>;
 }
 
-const EVENTOS: { id: keyof Integracao['exemplos']; titulo: string; onde: string }[] = [
-  {
-    id: 'chat_iniciado',
-    titulo: 'Atendimento iniciado (recomendado)',
-    onde: 'No começo da URA/automação de entrada da fila do WhatsApp, antes de qualquer menu. Conta também os leads que só a IA atendeu.',
-  },
-  { id: 'qualificado', titulo: 'Qualificado (opcional)', onde: 'Na automação disparada quando a oportunidade entra na etapa de qualificado do funil.' },
-  { id: 'venda', titulo: 'Venda (opcional)', onde: 'Na automação disparada quando a oportunidade é ganha. O valor vem da oportunidade.' },
-  { id: 'descartado', titulo: 'Descartado (opcional)', onde: 'Na automação disparada quando a oportunidade é perdida.' },
-];
+const ONDE: Record<TipoEtapa, string> = {
+  andamento: 'Na automação disparada quando a oportunidade entra na etapa correspondente do funil do CRM.',
+  venda: 'Na automação disparada quando a oportunidade é ganha. O valor vem da oportunidade.',
+  perda: 'Na automação disparada quando a oportunidade é perdida.',
+};
+
+/** O começo do atendimento e um evento por etapa ativa do funil (Configurações › Etapas do funil). */
+function eventos(dados: Integracao): { id: string; titulo: string; onde: string }[] {
+  return [
+    {
+      id: 'chat_iniciado',
+      titulo: 'Atendimento iniciado (recomendado)',
+      onde: 'No começo da URA/automação de entrada da fila do WhatsApp, antes de qualquer menu. Conta também os leads que só a IA atendeu.',
+    },
+    ...(dados.etapas ?? []).map((e) => ({ id: e.chave, titulo: `${e.nome} (opcional)`, onde: ONDE[e.tipo] })),
+  ].filter((e) => dados.exemplos[e.id]);
+}
 
 /** A automação da Kentro avisa o Kentro Track pelo elemento de requisição HTTP (POST com JSON). */
 export function IntegracaoAtendimento({ omni, api }: { omni: Omni; api: Api }) {
@@ -63,7 +73,7 @@ export function IntegracaoAtendimento({ omni, api }: { omni: Omni; api: Api }) {
             <code class="kt-chave-valor">{dados.url}</code>
             <div class="kt-muted">Quem tiver esta URL consegue registrar eventos nesta conta: não compartilhe fora das automações.</div>
           </div>
-          {EVENTOS.map((e) => {
+          {eventos(dados).map((e) => {
             const corpo = JSON.stringify(dados.exemplos[e.id], null, 2);
             return (
               <details key={e.id} class="kt-sanfona" open={e.id === 'chat_iniciado'}>

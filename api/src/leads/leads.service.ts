@@ -1,11 +1,12 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { EtapaLead, Lead, Prisma } from '@prisma/client';
+import { EtapaFunil, Lead, Prisma } from '@prisma/client';
 import { CapiService } from '../capi/capi.service';
 import { Gatilho } from '../capi/evento';
 import { assinar, conferirAssinatura } from '../comum/assinatura';
 import { ConfigApp, CONFIG_APP } from '../comum/config';
 import { ErroApi } from '../comum/erros';
 import { PrismaService } from '../comum/prisma.service';
+import { etapaPublica, EtapasService } from '../etapas/etapas.service';
 import { PainelService } from '../painel/painel.service';
 import { normalizarTelefone } from './telefone';
 
@@ -32,7 +33,6 @@ export interface Autor {
   nome?: string;
 }
 
-export type EtapaDoAtendente = Extract<EtapaLead, 'em_atendimento' | 'qualificado' | 'venda' | 'descartado'>;
 
 /** Formulário do mesmo telefone até 30 dias antes: a conversa é continuação dele, não outra entrada. */
 const JANELA_FORMULARIO_DIAS = 30;
@@ -74,6 +74,7 @@ export class LeadsService {
     private readonly prisma: PrismaService,
     private readonly painel: PainelService,
     private readonly capi: CapiService,
+    private readonly etapas: EtapasService,
     @Inject(CONFIG_APP) private readonly config: ConfigApp,
   ) {}
 
@@ -256,36 +257,79 @@ export class LeadsService {
     return this.prisma.lead.update({ where: { id: lead.id }, data: { atendenteId, atendenteNome } });
   }
 
-  async mudarEtapa(contaId: string, lead: Lead, etapa: EtapaDoAtendente, extra: { valor?: number; motivo?: string }, autor: Autor): Promise<Lead> {
+  /**
+   * Leva o lead a uma etapa do funil (id, chave ou os nomes de antes) ou de volta a "em atendimento".
+   * A situação derivada (etapa) e as datas de qualificado, venda e descarte continuam alimentando as
+   * métricas; as etapas alcançadas alimentam o funil configurável.
+   */
+  async mudarEtapa(contaId: string, lead: Lead, alvo: string, extra: { valor?: number; motivo?: string }, autor: Autor): Promise<Lead> {
     const agora = new Date();
-    const dados: Prisma.LeadUncheckedUpdateInput = { etapa };
+    const dados: Prisma.LeadUncheckedUpdateInput = {};
     let texto: string;
-    if (etapa === 'venda') {
-      if (extra.valor == null || !Number.isFinite(extra.valor) || extra.valor < 0) throw new ErroApi(400, 'VALOR_INVALIDO', 'Informe o valor da venda.');
-      Object.assign(dados, { valorVenda: new Prisma.Decimal(extra.valor.toFixed(2)), vendaEm: agora, qualificadoEm: lead.qualificadoEm ?? agora, motivoDescarte: null });
-      texto = `Venda registrada: ${extra.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}.`;
-    } else if (etapa === 'descartado') {
-      const motivo = limpo(extra.motivo, 200);
-      if (!motivo) throw new ErroApi(400, 'MOTIVO_OBRIGATORIO', 'Informe o motivo do descarte.');
-      Object.assign(dados, { motivoDescarte: motivo, descartadoEm: agora });
-      texto = `Descartado: ${motivo}.`;
-    } else if (etapa === 'qualificado') {
-      Object.assign(dados, { qualificadoEm: lead.qualificadoEm ?? agora });
-      texto = 'Marcado como qualificado.';
-    } else {
+    let tipoEvento: string;
+    let etapa: EtapaFunil | null = null;
+    let etapas: EtapaFunil[] = [];
+
+    if (alvo === 'em_atendimento') {
+      Object.assign(dados, { etapa: 'em_atendimento', etapaId: null });
       texto = 'Voltou para em atendimento.';
+      tipoEvento = 'em_atendimento';
+    } else {
+      etapa = await this.etapas.resolver(contaId, alvo);
+      etapas = await this.etapas.listar(contaId);
+      dados.etapaId = etapa.id;
+      tipoEvento = etapa.chave;
+      if (etapa.tipo === 'venda') {
+        if (extra.valor == null || !Number.isFinite(extra.valor) || extra.valor < 0) throw new ErroApi(400, 'VALOR_INVALIDO', 'Informe o valor da venda.');
+        Object.assign(dados, {
+          etapa: 'venda',
+          valorVenda: new Prisma.Decimal(extra.valor.toFixed(2)),
+          vendaEm: agora,
+          qualificadoEm: lead.qualificadoEm ?? agora,
+          motivoDescarte: null,
+          etapasAlcancadas: [...new Set([...lead.etapasAlcancadas, etapa.id])],
+        });
+        texto = `Venda registrada${etapa.nome === 'Venda' ? '' : ` (${etapa.nome})`}: ${extra.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}.`;
+      } else if (etapa.tipo === 'perda') {
+        const motivo = limpo(extra.motivo, 200);
+        if (!motivo) throw new ErroApi(400, 'MOTIVO_OBRIGATORIO', 'Informe o motivo.');
+        Object.assign(dados, { etapa: 'descartado', motivoDescarte: motivo, descartadoEm: agora });
+        texto = `${etapa.nome}: ${motivo}.`;
+      } else {
+        // Chegar a uma etapa qualificada, ou a qualquer uma depois dela, conta como qualificado.
+        const ordem = etapa.ordem;
+        const qualifica = etapas.some((q) => q.qualificada && q.ordem <= ordem);
+        const qualificadoEm = lead.qualificadoEm ?? (qualifica ? agora : null);
+        Object.assign(dados, {
+          etapa: qualificadoEm ? 'qualificado' : 'em_atendimento',
+          qualificadoEm,
+          etapasAlcancadas: [...new Set([...lead.etapasAlcancadas, etapa.id])],
+        });
+        texto = `Marcado como ${etapa.nome.toLowerCase()}.`;
+      }
     }
     if (!lead.atendidoEm) Object.assign(dados, { atendidoEm: agora });
     if (autor.tipo === 'atendente' && !lead.atendenteId) Object.assign(dados, { atendenteId: autor.id ?? null, atendenteNome: autor.nome ?? null });
 
     const atualizado = await this.prisma.$transaction(async (tx) => {
       const novo = await tx.lead.update({ where: { id: lead.id }, data: dados });
-      await this.evento(lead.id, etapa, `${texto}${autor.nome ? ` (${autor.nome})` : ''}`, autor, tx);
+      await this.evento(lead.id, tipoEvento, `${texto}${autor.nome ? ` (${autor.nome})` : ''}`, autor, tx);
       return novo;
     });
-    // Venda direta também conta como qualificado para o Meta (o event_id de cada etapa é único).
-    const gatilhos: Gatilho[] = etapa === 'venda' ? ['qualificado', 'venda'] : etapa === 'em_atendimento' ? [] : [etapa];
-    await this.avisarMeta(atualizado, gatilhos);
+    if (etapa) {
+      // Chegou aqui, passou pelas anteriores: os eventos delas também vão (cada um sai uma vez só).
+      const enviar =
+        etapa.tipo === 'perda'
+          ? [etapa]
+          : etapas.filter((e) => e.ativa && e.tipo !== 'perda' && e.ordem <= etapa!.ordem && (e.id === etapa!.id || e.tipo === 'andamento'));
+      for (const e of enviar) {
+        try {
+          await this.capi.enfileirarEtapa(atualizado, e);
+        } catch (erro) {
+          this.logger.error(`Enfileirar ${e.chave} do lead ${lead.id}: ${erro instanceof Error ? erro.message : erro}`);
+        }
+      }
+    }
     return atualizado;
   }
 
@@ -301,7 +345,7 @@ export class LeadsService {
 
   /** O lead como o painel do atendente mostra: anúncio com nomes, miniatura, histórico e outras entradas. */
   async paraPainel(lead: Lead) {
-    const [anuncio, campanha, conjunto, eventos, outras, eventosMeta] = await Promise.all([
+    const [anuncio, campanha, conjunto, eventos, outras, eventosMeta, etapas] = await Promise.all([
       lead.anuncioIdMeta && lead.contaAnuncioId
         ? this.prisma.anuncio.findUnique({ where: { contaAnuncioId_idMeta: { contaAnuncioId: lead.contaAnuncioId, idMeta: lead.anuncioIdMeta } } })
         : null,
@@ -320,7 +364,9 @@ export class LeadsService {
           })
         : [],
       this.capi.doLead(lead.id),
+      this.etapas.listar(lead.contaId),
     ]);
+    const nomeEtapa = new Map(etapas.map((e) => [e.id, e.nome]));
     const nomesCampanhas = new Map(
       (
         await this.prisma.campanha.findMany({
@@ -333,6 +379,10 @@ export class LeadsService {
       id: lead.id,
       origem: lead.origem,
       etapa: lead.etapa,
+      etapaId: lead.etapaId,
+      etapaNome: lead.etapaId ? nomeEtapa.get(lead.etapaId) ?? null : null,
+      /** As etapas que viram botão no painel (ativas e marcadas para o atendente), na ordem do funil. */
+      etapas: etapas.filter((e) => e.ativa && e.botaoAtendente).map(etapaPublica),
       nome: lead.nome,
       recebidoEm: lead.recebidoEm,
       atendidoEm: lead.atendidoEm,
@@ -360,6 +410,7 @@ export class LeadsService {
         id: o.id,
         origem: o.origem,
         etapa: o.etapa,
+        etapaNome: o.etapaId ? nomeEtapa.get(o.etapaId) ?? null : null,
         recebidoEm: o.recebidoEm,
         campanha: o.campanhaIdMeta ? nomesCampanhas.get(o.campanhaIdMeta) ?? null : null,
         valorVenda: o.valorVenda == null ? null : Number(o.valorVenda),

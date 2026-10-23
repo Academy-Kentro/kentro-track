@@ -5,12 +5,32 @@ import { dinheiro, haQuanto } from '../../comum/formato';
 import { Icone, NomeIcone } from '../../comum/icones';
 import { avisar } from '../../comum/omni';
 
+/** Situação do lead (derivada da etapa do funil). */
 export type Etapa = 'novo' | 'em_atendimento' | 'qualificado' | 'venda' | 'descartado';
+
+/** Etapa do funil que vira botão: andamento marca, venda pede o valor, perda pede o motivo. */
+export interface EtapaBotao {
+  id: string;
+  nome: string;
+  tipo: 'andamento' | 'venda' | 'perda';
+  qualificada?: boolean;
+}
+
+/** API de antes das etapas configuráveis: os três botões de sempre, pelas chaves que ela entende. */
+const ETAPAS_PADRAO: EtapaBotao[] = [
+  { id: 'qualificado', nome: 'Qualificado', tipo: 'andamento', qualificada: true },
+  { id: 'venda', nome: 'Venda', tipo: 'venda' },
+  { id: 'descartado', nome: 'Descartar', tipo: 'perda' },
+];
 
 export interface LeadPainel {
   id: string;
   origem: 'ctwa' | 'formulario' | 'link' | 'organico';
   etapa: Etapa;
+  etapaId?: string | null;
+  etapaNome?: string | null;
+  /** As etapas que viram botão (ativas e marcadas para o atendente), na ordem do funil. */
+  etapas?: EtapaBotao[];
   nome: string | null;
   recebidoEm: string;
   valorVenda: number | null;
@@ -28,7 +48,7 @@ export interface LeadPainel {
   historico: { tipo: string; texto: string; autor: string; em: string }[];
   /** O que já foi (ou está indo) para o pixel deste lead. */
   eventosMeta?: { gatilho: string; evento: string; status: 'pendente' | 'enviado' | 'erro' | 'descartado' }[];
-  outrasEntradas: { id: string; origem: string; etapa: Etapa; recebidoEm: string; campanha: string | null; valorVenda: number | null }[];
+  outrasEntradas: { id: string; origem: string; etapa: Etapa; etapaNome?: string | null; recebidoEm: string; campanha: string | null; valorVenda: number | null }[];
 }
 
 const ORIGEM: Record<LeadPainel['origem'], string> = {
@@ -141,21 +161,29 @@ export function Origem({ lead }: { lead: LeadPainel }) {
   );
 }
 
-/** Qualificado / Venda / Descartado: alimenta o funil do gestor e o evento no pixel. */
+const ESTILO: Record<EtapaBotao['tipo'], { classe: string; icone: NomeIcone }> = {
+  andamento: { classe: 'kt-botao-secundario', icone: 'check' },
+  venda: { classe: 'kt-botao-sucesso', icone: 'sacola' },
+  perda: { classe: 'kt-botao-perigo', icone: 'fechar' },
+};
+
+/** As etapas do funil da conta: alimentam os painéis do gestor e os eventos do pixel. */
 export function Etapas({ api, lead, mudar }: { api: Api; lead: LeadPainel; mudar: (l: LeadPainel) => void }) {
-  const [aberto, setAberto] = useState<'venda' | 'descartado' | null>(null);
+  const [aberta, setAberta] = useState<string | null>(null);
   const [valor, setValor] = useState('');
   const [motivo, setMotivo] = useState(MOTIVOS[0]);
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState('');
+  const etapas = lead.etapas ?? ETAPAS_PADRAO;
+  const formulario = etapas.find((e) => e.id === aberta);
 
-  const enviar = async (etapa: Etapa, extra: { valor?: number; motivo?: string } = {}) => {
+  const enviar = async (etapa: string, rotulo: string, extra: { valor?: number; motivo?: string } = {}) => {
     setEnviando(true);
     setErro('');
     try {
       mudar(await api<LeadPainel>(`/v1/atendimento/leads/${lead.id}/etapa`, { method: 'POST', body: { etapa, ...extra } }));
-      setAberto(null);
-      avisar(`Lead marcado como ${ETAPA[etapa].toLowerCase()}.`);
+      setAberta(null);
+      avisar(`Lead marcado como ${rotulo.toLowerCase()}.`);
     } catch (e) {
       setErro(mensagemDeErro(e));
     } finally {
@@ -163,15 +191,16 @@ export function Etapas({ api, lead, mudar }: { api: Api; lead: LeadPainel; mudar
     }
   };
   const valorNumero = Number(valor.replace(/\./g, '').replace(',', '.'));
+  const atual = lead.etapaNome ?? ETAPA[lead.etapa];
 
   return (
     <section class="kt-card kt-etapas">
       <div class="kt-etapa-atual">
-        <span class="kt-muted">Etapa:</span> <span class={`kt-etapa kt-etapa-${lead.etapa}`}>{ETAPA[lead.etapa]}</span>
+        <span class="kt-muted">Etapa:</span> <span class={`kt-etapa kt-etapa-${lead.etapa}`}>{atual}</span>
         {lead.etapa === 'venda' && lead.valorVenda != null && <strong> · {dinheiro(lead.valorVenda)}</strong>}
         {lead.etapa === 'descartado' && lead.motivoDescarte && <span class="kt-muted"> · {lead.motivoDescarte}</span>}
         {(lead.etapa === 'venda' || lead.etapa === 'descartado') && (
-          <button type="button" class="kt-link kt-reabrir" disabled={enviando} onClick={() => enviar('em_atendimento')}>
+          <button type="button" class="kt-link kt-reabrir" disabled={enviando} onClick={() => enviar('em_atendimento', 'em atendimento')}>
             <Icone nome="desfazer" tamanho={12} />
             Reabrir
           </button>
@@ -179,31 +208,43 @@ export function Etapas({ api, lead, mudar }: { api: Api; lead: LeadPainel; mudar
       </div>
       {erro && <Aviso tipo="erro">{erro}</Aviso>}
       <div class="kt-botoes-etapa">
-        <button type="button" class="kt-botao kt-botao-secundario" disabled={enviando || lead.etapa === 'qualificado'} onClick={() => enviar('qualificado')}>
-          <Icone nome="estrela" tamanho={14} />
-          Qualificado
-        </button>
-        <button type="button" class="kt-botao kt-botao-sucesso" aria-expanded={aberto === 'venda'} disabled={enviando} onClick={() => setAberto(aberto === 'venda' ? null : 'venda')}>
-          <Icone nome="sacola" tamanho={14} />
-          Venda
-        </button>
-        <button type="button" class="kt-botao kt-botao-perigo" aria-expanded={aberto === 'descartado'} disabled={enviando} onClick={() => setAberto(aberto === 'descartado' ? null : 'descartado')}>
-          <Icone nome="fechar" tamanho={14} />
-          Descartar
-        </button>
+        {etapas.map((e) => {
+          const { classe, icone } = ESTILO[e.tipo];
+          const pedeDado = e.tipo !== 'andamento';
+          const atualEsta = lead.etapaId === e.id;
+          return (
+            <button
+              key={e.id}
+              type="button"
+              class={`kt-botao ${classe}`}
+              aria-expanded={pedeDado ? aberta === e.id : undefined}
+              aria-pressed={atualEsta || undefined}
+              disabled={enviando || (!pedeDado && atualEsta)}
+              onClick={() => (pedeDado ? setAberta(aberta === e.id ? null : e.id) : enviar(e.id, e.nome))}
+            >
+              <Icone nome={e.qualificada ? 'estrela' : icone} tamanho={14} />
+              {e.nome}
+            </button>
+          );
+        })}
       </div>
-      {aberto === 'venda' && (
+      {formulario?.tipo === 'venda' && (
         <div class="kt-formulario-etapa">
           <label class="kt-campo">
             <span>Valor da venda (R$)</span>
             <input inputMode="decimal" value={valor} placeholder="0,00" onInput={(e) => setValor((e.target as HTMLInputElement).value)} />
           </label>
-          <button type="button" class="kt-botao kt-botao-sucesso" disabled={enviando || !valor.trim() || !Number.isFinite(valorNumero) || valorNumero < 0} onClick={() => enviar('venda', { valor: Math.round(valorNumero * 100) / 100 })}>
-            Registrar venda
+          <button
+            type="button"
+            class="kt-botao kt-botao-sucesso"
+            disabled={enviando || !valor.trim() || !Number.isFinite(valorNumero) || valorNumero < 0}
+            onClick={() => enviar(formulario.id, formulario.nome, { valor: Math.round(valorNumero * 100) / 100 })}
+          >
+            Registrar {formulario.nome.toLowerCase()}
           </button>
         </div>
       )}
-      {aberto === 'descartado' && (
+      {formulario?.tipo === 'perda' && (
         <div class="kt-formulario-etapa">
           <label class="kt-campo">
             <span>Motivo</span>
@@ -213,8 +254,8 @@ export function Etapas({ api, lead, mudar }: { api: Api; lead: LeadPainel; mudar
               ))}
             </select>
           </label>
-          <button type="button" class="kt-botao kt-botao-perigo" disabled={enviando} onClick={() => enviar('descartado', { motivo })}>
-            Descartar lead
+          <button type="button" class="kt-botao kt-botao-perigo" disabled={enviando} onClick={() => enviar(formulario.id, formulario.nome, { motivo })}>
+            Confirmar: {formulario.nome.toLowerCase()}
           </button>
         </div>
       )}
@@ -249,7 +290,7 @@ export function Entradas({ lead }: { lead: LeadPainel }) {
           <li key={o.id}>
             <span class="kt-entrada-data">{new Date(o.recebidoEm).toLocaleDateString('pt-BR')}</span>
             <span class="kt-entrada-texto">{o.campanha ?? ORIGEM[o.origem as LeadPainel['origem']] ?? o.origem}</span>
-            <span class={`kt-etapa kt-etapa-${o.etapa}`}>{ETAPA[o.etapa]}</span>
+            <span class={`kt-etapa kt-etapa-${o.etapa}`}>{o.etapaNome ?? ETAPA[o.etapa]}</span>
             {o.valorVenda != null && <strong> · {dinheiro(o.valorVenda)}</strong>}
           </li>
         ))}

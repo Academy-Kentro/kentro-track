@@ -423,3 +423,24 @@ th[aria-sort] .kt-ordenar { color: var(--ext-color-primary); }
 .kt-calor-legenda .kt-calor-celula { width: 16px; height: 12px; }
 .kt-calor-legenda .kt-calor-celula:hover { box-shadow: none; }
 
+
+/* Configurações › Etapas do funil */
+.kt-etapas-funil { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 10px; }
+.kt-etapas-funil > li { border: 1px solid var(--kt-linha); border-radius: var(--kt-r-p); padding: 12px; background: var(--ext-color-bg); }
+.kt-etapas-funil > li.kt-etapa-desativada { background: var(--kt-superficie); opacity: .75; }
+.kt-etapa-linha { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; }
+.kt-etapa-ordem {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 26px; height: 26px; margin-bottom: 6px; border-radius: 999px;
+  background: var(--kt-suave); color: var(--ext-color-primary); font-weight: 700; font-size: .85em;
+}
+.kt-etapa-nome { flex: 1 1 180px; }
+.kt-etapa-linha .kt-campo { margin: 0; }
+.kt-etapa-mover { display: flex; gap: 4px; margin-left: auto; }
+.kt-etapa-ajuda { margin: 6px 0 2px 36px; }
+.kt-etapa-chaves { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 18px; margin-left: 36px; }
+.kt-etapa-chave { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .8em; }
+@media (max-width: 560px) {
+  .kt-etapa-ajuda, .kt-etapa-chaves { margin-left: 0; }
+  .kt-etapa-mover { margin-left: 0; }
+}

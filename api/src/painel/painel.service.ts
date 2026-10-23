@@ -5,6 +5,7 @@ import { ConfigApp, CONFIG_APP } from '../comum/config';
 import { cadaDia, comoDia, diasEntre, ehDia, somarDias } from '../comum/datas';
 import { ErroApi } from '../comum/erros';
 import { PrismaService } from '../comum/prisma.service';
+import { etapaPublica, EtapasService } from '../etapas/etapas.service';
 import { mascararTelefone } from '../leads/telefone';
 import { calcular, Metricas, Somas, somar, somasDe, ZERO } from './metricas';
 
@@ -56,6 +57,7 @@ interface LinhaLead {
   id: string;
   origem: string;
   etapa: string;
+  etapa_id: string | null;
   nome: string | null;
   telefone: string | null;
   chat_id: string | null;
@@ -79,8 +81,31 @@ export interface NoCampanha {
 export class PainelService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly etapas: EtapasService,
     @Inject(CONFIG_APP) private readonly config: ConfigApp,
   ) {}
+
+  /**
+   * Quantos leads (do filtro) cada etapa visível tem. Andamento e venda: chegaram até ela ou além (o
+   * lead marcado direto como venda conta nas anteriores). Perda: estão nela agora.
+   */
+  private async contarPorEtapa(contaId: string, ondeLeads: Prisma.Sql, porAtendente: boolean) {
+    const linhas = await this.prisma.$queryRaw<{ atendente_id: string; etapa_id: string; n: bigint }[]>`
+      SELECT ${porAtendente ? Prisma.sql`COALESCE(l.atendente_id, '')` : Prisma.sql`''`} AS atendente_id, e.id::text AS etapa_id, COUNT(*) AS n
+      FROM leads l JOIN etapas_funil e ON e.conta_id = l.conta_id
+      WHERE ${ondeLeads} AND e.conta_id = ${contaId}::uuid AND e.ativa AND e.no_painel
+        AND ((e.tipo = 'perda' AND l.etapa_id = e.id)
+             OR (e.tipo <> 'perda' AND EXISTS (
+                   SELECT 1 FROM etapas_funil a
+                   WHERE a.id = ANY(l.etapas_alcancadas) AND a.tipo <> 'perda' AND a.ordem >= e.ordem)))
+      GROUP BY 1, 2`;
+    return linhas.map((l) => ({ atendenteId: l.atendente_id, etapaId: l.etapa_id, n: Number(l.n) }));
+  }
+
+  /** As etapas que entram nos painéis (ativas e marcadas para aparecer), na ordem do funil. */
+  private async etapasDoPainel(contaId: string) {
+    return (await this.etapas.listar(contaId)).filter((e) => e.ativa && e.noPainel).map(etapaPublica);
+  }
 
   validar(filtro: Filtro): void {
     if (!ehDia(filtro.de) || !ehDia(filtro.ate) || filtro.de > filtro.ate) {
@@ -135,6 +160,7 @@ export class PainelService {
 
   async visaoGeral(contaId: string, filtro: Filtro) {
     const { contas, moeda, onde, ondeLeads } = await this.escopo(contaId, filtro);
+    const [etapas, porEtapa] = await Promise.all([this.etapasDoPainel(contaId), this.contarPorEtapa(contaId, ondeLeads(filtro.de, filtro.ate), false)]);
     const dias = diasEntre(filtro.de, filtro.ate);
     const anterior = { de: somarDias(filtro.de, -dias), ate: somarDias(filtro.de, -1) };
 
@@ -168,6 +194,10 @@ export class PainelService {
       /** Atendimentos sem anúncio no período: fora do funil e do ROAS, mas o gestor vê o volume. */
       organicos: Number(organicos?.n ?? 0),
       serie: serie.map(({ data, investimento, leads, conversas, impressoes, cliquesLink }) => ({ data, investimento, leads, conversas, impressoes, cliquesLink })),
+      /** O funil do atendimento nas etapas da conta (as de perda ficam de fora: não são um passo). */
+      funil: etapas
+        .filter((e) => e.tipo !== 'perda')
+        .map((e) => ({ id: e.id, nome: e.nome, tipo: e.tipo, leads: porEtapa.find((p) => p.etapaId === e.id)?.n ?? 0 })),
       ...this.situacao(contas),
     };
   }
@@ -280,9 +310,14 @@ export class PainelService {
     const porPagina = 50;
     const pagina = Math.max(1, Math.min(200, filtro.pagina ?? 1));
     const porOrigem = filtro.origem ? Prisma.sql`AND l.origem = ${filtro.origem}::"OrigemLead"` : Prisma.empty;
-    const porEtapa = filtro.etapa ? Prisma.sql`AND l.etapa = ${filtro.etapa}::"EtapaLead"` : Prisma.empty;
+    // "novo" e "em_atendimento" são as situações antes de qualquer etapa; o resto é o id da etapa.
+    const porEtapa = !filtro.etapa
+      ? Prisma.empty
+      : filtro.etapa === 'novo' || filtro.etapa === 'em_atendimento'
+        ? Prisma.sql`AND l.etapa_id IS NULL AND l.etapa = ${filtro.etapa}::"EtapaLead"`
+        : Prisma.sql`AND l.etapa_id = ${filtro.etapa}::uuid`;
     const linhas = await this.prisma.$queryRaw<LinhaLead[]>`
-      SELECT l.id, l.origem, l.etapa, l.nome, l.telefone, l.chat_id, l.recebido_em, l.atendido_em, l.atendente_nome,
+      SELECT l.id, l.origem, l.etapa, l.etapa_id::text AS etapa_id, l.nome, l.telefone, l.chat_id, l.recebido_em, l.atendido_em, l.atendente_nome,
              l.valor_venda, l.vinculo_anuncio, c.nome AS campanha, a.nome AS anuncio
       FROM leads l
       LEFT JOIN campanhas c ON c.conta_anuncio_id = l.conta_anuncio_id AND c.id_meta = l.campanha_id_meta
@@ -291,16 +326,23 @@ export class PainelService {
       ORDER BY l.recebido_em DESC
       LIMIT ${porPagina + 1} OFFSET ${(pagina - 1) * porPagina}`;
     const contagem = await this.prisma.$queryRaw<{ etapa: string; n: bigint }[]>`
-      SELECT l.etapa, COUNT(*) AS n FROM leads l WHERE ${ondeLeads(filtro.de, filtro.ate, true)} ${porOrigem}
-      GROUP BY l.etapa`;
+      SELECT COALESCE(l.etapa_id::text, l.etapa::text) AS etapa, COUNT(*) AS n FROM leads l WHERE ${ondeLeads(filtro.de, filtro.ate, true)} ${porOrigem}
+      GROUP BY 1`;
+    const etapas = await this.etapas.listar(contaId);
+    const nomes = new Map(etapas.map((e) => [e.id, e]));
     return {
       pagina,
+      /** Todas as etapas (a tela mostra como filtro as ativas e visíveis; as outras só dão nome ao lead). */
+      etapas: etapas.map(etapaPublica),
       temMais: linhas.length > porPagina,
       porEtapa: Object.fromEntries(contagem.map((e) => [e.etapa, Number(e.n)])),
       itens: linhas.slice(0, porPagina).map((l) => ({
         id: l.id,
         origem: l.origem,
         etapa: l.etapa,
+        etapaId: l.etapa_id,
+        etapaNome: l.etapa_id ? nomes.get(l.etapa_id)?.nome ?? null : null,
+        etapaTipo: l.etapa_id ? nomes.get(l.etapa_id)?.tipo ?? null : null,
         nome: l.nome,
         telefone: mascararTelefone(l.telefone),
         chatId: l.chat_id,
@@ -334,6 +376,7 @@ export class PainelService {
   /** Por atendente: quem recebeu os leads do período e quanto converteu. */
   async equipe(contaId: string, filtro: Filtro) {
     const { moeda, ondeLeads } = await this.escopo(contaId, filtro);
+    const [etapas, porEtapa] = await Promise.all([this.etapasDoPainel(contaId), this.contarPorEtapa(contaId, ondeLeads(filtro.de, filtro.ate, true), true)]);
     const linhas = await this.prisma.$queryRaw<Record<string, unknown>[]>`
       SELECT COALESCE(l.atendente_id, '') AS atendente_id, MAX(l.atendente_nome) AS atendente_nome, ${LEADS_SQL},
              COUNT(*) FILTER (WHERE l.etapa = 'descartado') AS descartados,
@@ -350,6 +393,8 @@ export class PainelService {
       LIMIT ${MAX_ATENDENTES_POR_VEZ}`;
     return {
       moeda,
+      /** As colunas por etapa da tabela, na ordem do funil. */
+      etapas: etapas.map(({ id, nome, tipo }) => ({ id, nome, tipo })),
       semAtendente: semAtendente.map((l) => l.chat_id),
       atendentes: linhas.map((l) => {
         const m = calcular(somasDe(l));
@@ -360,6 +405,7 @@ export class PainelService {
           qualificados: m.qualificados,
           vendas: m.vendas,
           descartados: Number(l.descartados ?? 0),
+          porEtapa: Object.fromEntries(porEtapa.filter((p) => p.atendenteId === ((l.atendente_id as string) || '')).map((p) => [p.etapaId, p.n])),
           receita: m.receita,
           taxaVenda: m.taxaVenda,
           minutosAteAtender: l.segundos_ate_atender == null ? null : Math.round(Number(l.segundos_ate_atender) / 60),

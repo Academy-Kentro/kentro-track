@@ -5,17 +5,24 @@ import { dinheiro, inteiro, percentual } from '../../comum/formato';
 import type { Omni } from '../../comum/omni';
 import { atendentesNaKentro, gravarAtendentes } from './atendentes';
 import { Seletor, type Carga } from './filtro';
+import type { EtapaFunil, TipoEtapa } from './tipos';
 
+/** Situação do lead (derivada da etapa do funil). */
 export type Etapa = 'novo' | 'em_atendimento' | 'qualificado' | 'venda' | 'descartado';
 
 export interface DadosLeads {
   pagina: number;
   temMais: boolean;
-  porEtapa: Partial<Record<Etapa, number>>;
+  /** Por "novo", "em_atendimento" ou id da etapa do funil. */
+  porEtapa: Record<string, number>;
+  etapas?: EtapaFunil[];
   itens: {
     id: string;
     origem: 'ctwa' | 'formulario' | 'link' | 'organico';
     etapa: Etapa;
+    etapaId?: string | null;
+    etapaNome?: string | null;
+    etapaTipo?: TipoEtapa | null;
     nome: string | null;
     telefone: string | null;
     chatId: string | null;
@@ -40,24 +47,30 @@ export interface DadosEquipe {
     receita: number;
     taxaVenda: number | null;
     minutosAteAtender: number | null;
+    /** Por id da etapa: chegaram até ela ou além (perda: estão nela). */
+    porEtapa?: Record<string, number>;
   }[];
+  /** As colunas por etapa, na ordem do funil. */
+  etapas?: { id: string; nome: string; tipo: TipoEtapa }[];
   /** Atendimentos do período sem atendente gravado: a tela pergunta à Kentro quem está com eles. */
   semAtendente?: string[];
 }
 
 export interface FiltroLeads {
   origem: '' | 'ctwa' | 'formulario' | 'link' | 'organico';
-  etapa: '' | Etapa;
+  /** "novo", "em_atendimento" ou o id da etapa do funil. */
+  etapa: string;
   pagina: number;
 }
 
-const ETAPAS: { id: Etapa; rotulo: string }[] = [
-  { id: 'novo', rotulo: 'Novos' },
-  { id: 'em_atendimento', rotulo: 'Em atendimento' },
-  { id: 'qualificado', rotulo: 'Qualificados' },
-  { id: 'venda', rotulo: 'Vendas' },
-  { id: 'descartado', rotulo: 'Descartados' },
+/** Antes de qualquer etapa do funil. */
+const SITUACOES: { id: string; rotulo: string; classe: string }[] = [
+  { id: 'novo', rotulo: 'Novos', classe: 'novo' },
+  { id: 'em_atendimento', rotulo: 'Em atendimento', classe: 'em_atendimento' },
 ];
+
+/** A cor da etapa vem do tipo: andamento como qualificado, venda verde, perda vermelha. */
+export const CLASSE_TIPO: Record<TipoEtapa, Etapa> = { andamento: 'qualificado', venda: 'venda', perda: 'descartado' };
 
 const ORIGENS: { id: FiltroLeads['origem']; rotulo: string }[] = [
   { id: '', rotulo: 'Todas as origens' },
@@ -103,8 +116,11 @@ export function Leads({ omni, api, carga, filtro, mudar }: { omni: Omni; api: Ap
             <button type="button" class="kt-chip" aria-pressed={filtro.etapa === ''} onClick={() => mudar({ ...filtro, etapa: '', pagina: 1 })}>
               Todas <span class="kt-chip-n">({inteiro(Object.values(dados.porEtapa).reduce((a, b) => a + (b ?? 0), 0))})</span>
             </button>
-            {ETAPAS.map((e) => (
-              <button key={e.id} type="button" class={`kt-chip kt-chip-${e.id}`} aria-pressed={filtro.etapa === e.id} onClick={() => mudar({ ...filtro, etapa: e.id, pagina: 1 })}>
+            {[
+              ...SITUACOES,
+              ...(dados.etapas ?? []).filter((e) => e.ativa && e.noPainel).map((e) => ({ id: e.id, rotulo: e.nome, classe: CLASSE_TIPO[e.tipo] })),
+            ].map((e) => (
+              <button key={e.id} type="button" class={`kt-chip kt-chip-${e.classe}`} aria-pressed={filtro.etapa === e.id} onClick={() => mudar({ ...filtro, etapa: e.id, pagina: 1 })}>
                 {e.rotulo} <span class="kt-chip-n">({inteiro(dados.porEtapa[e.id] ?? 0)})</span>
               </button>
             ))}
@@ -161,7 +177,7 @@ export function Leads({ omni, api, carga, filtro, mudar }: { omni: Omni; api: Ap
                       {l.atendente ?? (l.chatId && atuais[l.chatId] ? <span title="Com o atendimento agora na Kentro">{atuais[l.chatId]}</span> : '—')}
                     </td>
                     <td>
-                      <span class={`kt-etapa kt-etapa-${l.etapa}`}>{ETAPA_ROTULO[l.etapa]}</span>
+                      <span class={`kt-etapa kt-etapa-${l.etapaTipo ? CLASSE_TIPO[l.etapaTipo] : l.etapa}`}>{l.etapaNome ?? ETAPA_ROTULO[l.etapa]}</span>
                     </td>
                     <td class="kt-num">{l.valorVenda == null ? '—' : dinheiro(l.valorVenda)}</td>
                   </tr>
@@ -209,6 +225,15 @@ export function Equipe({ omni, api, carga }: { omni: Omni; api: Api; carga: Carg
     );
   }
   const melhorTaxa = Math.max(1, ...dados.atendentes.map((a) => a.taxaVenda ?? 0));
+  type Linha = DadosEquipe['atendentes'][number];
+  // Uma coluna por etapa visível do funil; API sem etapas (versão anterior) mantém as três de antes.
+  const colunas: { id: string; nome: string; valor: (a: Linha) => number }[] = dados.etapas
+    ? dados.etapas.map((e) => ({ id: e.id, nome: e.nome, valor: (a: Linha) => a.porEtapa?.[e.id] ?? 0 }))
+    : [
+        { id: 'q', nome: 'Qualificados', valor: (a: Linha) => a.qualificados },
+        { id: 'v', nome: 'Vendas', valor: (a: Linha) => a.vendas },
+        { id: 'd', nome: 'Descartados', valor: (a: Linha) => a.descartados },
+      ];
   return (
     <div class={carregando ? 'kt-recarregando' : ''}>
       {erro && <Aviso tipo="erro">{erro}</Aviso>}
@@ -218,9 +243,11 @@ export function Equipe({ omni, api, carga }: { omni: Omni; api: Api; carga: Carg
             <tr>
               <th>Atendente</th>
               <th class="kt-num">Leads</th>
-              <th class="kt-num">Qualificados</th>
-              <th class="kt-num">Vendas</th>
-              <th class="kt-num">Descartados</th>
+              {colunas.map((c) => (
+                <th key={c.id} class="kt-num">
+                  {c.nome}
+                </th>
+              ))}
               <th class="kt-num">Taxa de venda</th>
               <th class="kt-num">Receita</th>
               <th class="kt-num" title="Do lead chegar até alguém abrir o painel da conversa">Tempo até atender</th>
@@ -236,9 +263,11 @@ export function Equipe({ omni, api, carga }: { omni: Omni; api: Api; carga: Carg
                   </span>
                 </td>
                 <td class="kt-num">{inteiro(a.entradas)}</td>
-                <td class="kt-num">{inteiro(a.qualificados)}</td>
-                <td class="kt-num">{inteiro(a.vendas)}</td>
-                <td class="kt-num">{inteiro(a.descartados)}</td>
+                {colunas.map((c) => (
+                  <td key={c.id} class="kt-num">
+                    {inteiro(c.valor(a))}
+                  </td>
+                ))}
                 <td class="kt-num">
                   <span class="kt-taxa">
                     <span class="kt-taxa-trilho" aria-hidden="true">

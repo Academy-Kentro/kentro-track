@@ -48,8 +48,9 @@ export class FiltroLeadsDto extends FiltroDto {
   @IsIn(['ctwa', 'formulario', 'link', 'organico'])
   origem?: string;
 
+  /** "novo", "em_atendimento" ou o id da etapa do funil. */
   @IsOptional()
-  @IsIn(['novo', 'em_atendimento', 'qualificado', 'venda', 'descartado'])
+  @Matches(/^(novo|em_atendimento|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/)
   etapa?: string;
 
   @IsOptional()

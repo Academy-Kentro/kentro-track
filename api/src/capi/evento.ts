@@ -1,12 +1,13 @@
 import { createHash } from 'node:crypto';
 import type { Lead } from '@prisma/client';
 
-export const GATILHOS = ['lead_recebido', 'qualificado', 'venda', 'descartado'] as const;
+/** Só a chegada do lead fica aqui: o evento de cada etapa do funil é configurado na própria etapa. */
+export const GATILHOS = ['lead_recebido'] as const;
 export type Gatilho = (typeof GATILHOS)[number];
 export type Mapeamento = Record<Gatilho, string | null>;
 
-/** Padrão: o que o n8n já mandava (Lead) mais as etapas do funil; descarte não vai. */
-export const MAPEAMENTO_PADRAO: Mapeamento = { lead_recebido: 'Lead', qualificado: 'QualifiedLead', venda: 'Purchase', descartado: null };
+/** Padrão: o que o n8n já mandava. */
+export const MAPEAMENTO_PADRAO: Mapeamento = { lead_recebido: 'Lead' };
 
 export function lerMapeamento(bruto: unknown): Mapeamento {
   const m = { ...MAPEAMENTO_PADRAO };
@@ -47,7 +48,7 @@ export interface Contexto {
  * - clique para WhatsApp com ctwa_clid e a conta do WhatsApp Business: "business_messaging";
  * - o resto: "chat", com o telefone em hash para o Meta casar com a pessoa.
  */
-export function montarEvento(lead: Lead, gatilho: Gatilho, eventName: string, ctx: Contexto) {
+export function montarEvento(lead: Lead, gatilho: string, eventName: string, ctx: Contexto, comValor = false) {
   const eventId = `kt-${lead.id}-${gatilho}`;
   const userData: Record<string, unknown> = { external_id: [hash(lead.id)] };
   if (lead.telefone) {
@@ -60,7 +61,7 @@ export function montarEvento(lead: Lead, gatilho: Gatilho, eventName: string, ct
   if (partes.length > 1) userData.ln = [hash(partes[partes.length - 1])];
 
   const customData: Record<string, unknown> = {};
-  if (gatilho === 'venda' && lead.valorVenda != null) {
+  if (comValor && lead.valorVenda != null) {
     customData.value = Number(lead.valorVenda);
     customData.currency = ctx.moeda;
   }

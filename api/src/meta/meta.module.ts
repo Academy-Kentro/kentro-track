@@ -5,6 +5,8 @@ import { PrismaService } from '../comum/prisma.service';
 import { CapiController } from '../capi/capi.controller';
 import { CapiService } from '../capi/capi.service';
 import { ContasModule } from '../contas/contas.module';
+import { EtapasController } from '../etapas/etapas.controller';
+import { EtapasService } from '../etapas/etapas.service';
 import { AtendimentoController, KentroController } from '../leads/leads.controller';
 import { LeadsService } from '../leads/leads.service';
 import { AnalisesService } from '../painel/analises.service';
@@ -19,7 +21,7 @@ import { SincronizacaoService } from './sincronizacao/sincronizacao.service';
 
 @Module({
   imports: [ContasModule],
-  controllers: [MetaController, PainelController, MidiaController, AtendimentoController, KentroController, CapiController],
+  controllers: [MetaController, PainelController, MidiaController, AtendimentoController, KentroController, CapiController, EtapasController],
   providers: [
     {
       provide: ClienteGraph,
@@ -51,6 +53,7 @@ import { SincronizacaoService } from './sincronizacao/sincronizacao.service';
     AnalisesService,
     LeadsService,
     CapiService,
+    EtapasService,
   ],
   exports: [ClienteGraph, ConexaoService, SincronizacaoService],
 })

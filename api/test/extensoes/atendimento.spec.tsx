@@ -144,6 +144,45 @@ describe('painel do atendimento', () => {
     expect(falso.toasts).toContain('Lead marcado como venda.');
   });
 
+  it('os botões são as etapas do funil da conta: andamento marca, venda pede o valor', async () => {
+    const etapas = [
+      { id: 'e1', nome: 'Engajou', tipo: 'andamento' as const },
+      { id: 'e2', nome: 'Agendou', tipo: 'andamento' as const, qualificada: true },
+      { id: 'e3', nome: 'Vendeu', tipo: 'venda' as const },
+      { id: 'e4', nome: 'Desqualificado', tipo: 'perda' as const },
+    ];
+    const comEtapas = (c: ChamadaHttp) => {
+      const caminho = new URL(c.url).pathname;
+      if (caminho === '/v1/atendimento/vincular') return ok({ ...LEAD, etapas, etapaId: 'e1', etapaNome: 'Engajou' });
+      if (caminho === '/v1/atendimento/leads/l1/etapa') {
+        const corpo = c.corpo as { etapa: string; valor?: number };
+        const e = etapas.find((x) => x.id === corpo.etapa)!;
+        return ok({ ...LEAD, etapas, etapaId: e.id, etapaNome: e.nome, etapa: e.tipo === 'venda' ? 'venda' : 'qualificado', valorVenda: corpo.valor ?? null });
+      }
+      return api(c);
+    };
+    const falso = await montar({ ...CONVERSA, http: comEtapas });
+    expect([...raiz.querySelectorAll('.kt-botoes-etapa button')].map((b) => b.textContent)).toEqual(['Engajou', 'Agendou', 'Vendeu', 'Desqualificado']);
+    expect(texto()).toContain('Etapa: Engajou');
+    // A etapa atual não se marca de novo.
+    expect((botao('Engajou') as HTMLButtonElement).disabled).toBe(true);
+
+    await clicar(botao('Agendou'));
+    expect(falso.chamadas.at(-1)?.corpo).toEqual({ etapa: 'e2' });
+    expect(texto()).toContain('Etapa: Agendou');
+    expect(falso.toasts).toContain('Lead marcado como agendou.');
+
+    await clicar(botao('Vendeu'));
+    const campo = raiz.querySelector('.kt-formulario-etapa input') as HTMLInputElement;
+    await act(async () => {
+      campo.value = '900';
+      campo.dispatchEvent(new Event('input'));
+    });
+    await clicar(botao('Registrar vendeu'));
+    expect(falso.chamadas.at(-1)?.corpo).toEqual({ etapa: 'e3', valor: 900 });
+    expect(texto()).toContain('Etapa: Vendeu');
+  });
+
   it('descarta com o motivo escolhido e permite reabrir', async () => {
     const falso = await montar(CONVERSA);
     await clicar(botao('Descartar'));
@@ -152,7 +191,7 @@ describe('painel do atendimento', () => {
       select.value = 'Sem orçamento';
       select.dispatchEvent(new Event('change'));
     });
-    await clicar(botao('Descartar lead'));
+    await clicar(botao('Confirmar: descartar'));
     expect(falso.chamadas.at(-1)?.corpo).toEqual({ etapa: 'descartado', motivo: 'Sem orçamento' });
     expect(texto()).toContain('Descartado · Sem orçamento');
     await clicar(botao('Reabrir'));

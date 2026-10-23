@@ -33,16 +33,17 @@ model Conta {
   criadoEm             DateTime    @default(now()) @map("criado_em")
   atualizadoEm         DateTime    @updatedAt @map("atualizado_em")
 
-  conexaoMeta    ConexaoMeta?
-  leads          Lead[]
-  configCapi     ConfigCapi?
-  enviosCapi     EnvioCapi[]
-  contasAnuncio  ContaAnuncio[]
-  campanhas      Campanha[]
-  conjuntos      Conjunto[]
-  anuncios       Anuncio[]
-  insights       InsightDiario[]
-  chamadasMeta   ChamadaMeta[]
+  conexaoMeta   ConexaoMeta?
+  leads         Lead[]
+  etapas        EtapaFunil[]
+  configCapi    ConfigCapi?
+  enviosCapi    EnvioCapi[]
+  contasAnuncio ContaAnuncio[]
+  campanhas     Campanha[]
+  conjuntos     Conjunto[]
+  anuncios      Anuncio[]
+  insights      InsightDiario[]
+  chamadasMeta  ChamadaMeta[]
 
   @@map("contas")
 }
@@ -116,17 +117,17 @@ model ContaAnuncio {
 }
 
 model Campanha {
-  id                String   @id @default(uuid()) @db.Uuid
-  contaId           String   @map("conta_id") @db.Uuid
-  contaAnuncioId    String   @map("conta_anuncio_id") @db.Uuid
-  idMeta            String   @map("id_meta")
-  nome              String
-  status            String?
-  statusEfetivo     String?  @map("status_efetivo")
-  objetivo          String?
-  orcamentoDiario   Decimal? @map("orcamento_diario") @db.Decimal(14, 2)
-  orcamentoTotal    Decimal? @map("orcamento_total") @db.Decimal(14, 2)
-  atualizadoEm      DateTime @updatedAt @map("atualizado_em")
+  id              String   @id @default(uuid()) @db.Uuid
+  contaId         String   @map("conta_id") @db.Uuid
+  contaAnuncioId  String   @map("conta_anuncio_id") @db.Uuid
+  idMeta          String   @map("id_meta")
+  nome            String
+  status          String?
+  statusEfetivo   String?  @map("status_efetivo")
+  objetivo        String?
+  orcamentoDiario Decimal? @map("orcamento_diario") @db.Decimal(14, 2)
+  orcamentoTotal  Decimal? @map("orcamento_total") @db.Decimal(14, 2)
+  atualizadoEm    DateTime @updatedAt @map("atualizado_em")
 
   conta Conta @relation(fields: [contaId], references: [id], onDelete: Cascade)
 
@@ -135,17 +136,17 @@ model Campanha {
 }
 
 model Conjunto {
-  id               String   @id @default(uuid()) @db.Uuid
-  contaId          String   @map("conta_id") @db.Uuid
-  contaAnuncioId   String   @map("conta_anuncio_id") @db.Uuid
-  idMeta           String   @map("id_meta")
-  campanhaIdMeta   String   @map("campanha_id_meta")
-  nome             String
-  status           String?
-  statusEfetivo    String?  @map("status_efetivo")
-  orcamentoDiario  Decimal? @map("orcamento_diario") @db.Decimal(14, 2)
-  orcamentoTotal   Decimal? @map("orcamento_total") @db.Decimal(14, 2)
-  atualizadoEm     DateTime @updatedAt @map("atualizado_em")
+  id              String   @id @default(uuid()) @db.Uuid
+  contaId         String   @map("conta_id") @db.Uuid
+  contaAnuncioId  String   @map("conta_anuncio_id") @db.Uuid
+  idMeta          String   @map("id_meta")
+  campanhaIdMeta  String   @map("campanha_id_meta")
+  nome            String
+  status          String?
+  statusEfetivo   String?  @map("status_efetivo")
+  orcamentoDiario Decimal? @map("orcamento_diario") @db.Decimal(14, 2)
+  orcamentoTotal  Decimal? @map("orcamento_total") @db.Decimal(14, 2)
+  atualizadoEm    DateTime @updatedAt @map("atualizado_em")
 
   conta Conta @relation(fields: [contaId], references: [id], onDelete: Cascade)
 
@@ -154,24 +155,24 @@ model Conjunto {
 }
 
 model Anuncio {
-  id              String   @id @default(uuid()) @db.Uuid
-  contaId         String   @map("conta_id") @db.Uuid
-  contaAnuncioId  String   @map("conta_anuncio_id") @db.Uuid
-  idMeta          String   @map("id_meta")
-  conjuntoIdMeta  String   @map("conjunto_id_meta")
-  campanhaIdMeta  String   @map("campanha_id_meta")
-  nome            String
-  status          String?
-  statusEfetivo   String?  @map("status_efetivo")
-  criativoIdMeta  String?  @map("criativo_id_meta")
+  id             String   @id @default(uuid()) @db.Uuid
+  contaId        String   @map("conta_id") @db.Uuid
+  contaAnuncioId String   @map("conta_anuncio_id") @db.Uuid
+  idMeta         String   @map("id_meta")
+  conjuntoIdMeta String   @map("conjunto_id_meta")
+  campanhaIdMeta String   @map("campanha_id_meta")
+  nome           String
+  status         String?
+  statusEfetivo  String?  @map("status_efetivo")
+  criativoIdMeta String?  @map("criativo_id_meta")
   /// URL do Meta (expira): a extensão recebe a nossa rota /m/… assinada, nunca esta.
-  miniaturaUrl    String?  @map("miniatura_url")
-  titulo          String?
-  texto           String?
+  miniaturaUrl   String?  @map("miniatura_url")
+  titulo         String?
+  texto          String?
   /// object_story_id / effective_object_story_id: liga o anúncio à mensagem de clique para WhatsApp (Fase 2).
-  objectStoryId   String?  @map("object_story_id")
-  permalink       String?
-  atualizadoEm    DateTime @updatedAt @map("atualizado_em")
+  objectStoryId  String?  @map("object_story_id")
+  permalink      String?
+  atualizadoEm   DateTime @updatedAt @map("atualizado_em")
 
   conta Conta @relation(fields: [contaId], references: [id], onDelete: Cascade)
 
@@ -182,23 +183,23 @@ model Anuncio {
 /// Fato diário por anúncio, no fuso da conta de anúncio. Ids do Meta sem chave estrangeira:
 /// a métrica pode chegar antes da entidade (anúncio criado entre duas sincronizações).
 model InsightDiario {
-  contaId          String   @map("conta_id") @db.Uuid
-  contaAnuncioId   String   @map("conta_anuncio_id") @db.Uuid
-  data             DateTime @db.Date
-  anuncioIdMeta    String   @map("anuncio_id_meta")
-  conjuntoIdMeta   String   @map("conjunto_id_meta")
-  campanhaIdMeta   String   @map("campanha_id_meta")
-  investimento     Decimal  @default(0) @db.Decimal(14, 2)
-  impressoes       Int      @default(0)
-  alcance          Int      @default(0)
-  cliques          Int      @default(0)
-  cliquesLink      Int      @default(0) @map("cliques_link")
-  leadsFormulario  Int      @default(0) @map("leads_formulario")
-  leadsSite        Int      @default(0) @map("leads_site")
-  conversas        Int      @default(0)
-  acoes            Json     @default("{}")
-  valoresAcoes     Json     @default("{}") @map("valores_acoes")
-  atualizadoEm     DateTime @updatedAt @map("atualizado_em")
+  contaId         String   @map("conta_id") @db.Uuid
+  contaAnuncioId  String   @map("conta_anuncio_id") @db.Uuid
+  data            DateTime @db.Date
+  anuncioIdMeta   String   @map("anuncio_id_meta")
+  conjuntoIdMeta  String   @map("conjunto_id_meta")
+  campanhaIdMeta  String   @map("campanha_id_meta")
+  investimento    Decimal  @default(0) @db.Decimal(14, 2)
+  impressoes      Int      @default(0)
+  alcance         Int      @default(0)
+  cliques         Int      @default(0)
+  cliquesLink     Int      @default(0) @map("cliques_link")
+  leadsFormulario Int      @default(0) @map("leads_formulario")
+  leadsSite       Int      @default(0) @map("leads_site")
+  conversas       Int      @default(0)
+  acoes           Json     @default("{}")
+  valoresAcoes    Json     @default("{}") @map("valores_acoes")
+  atualizadoEm    DateTime @updatedAt @map("atualizado_em")
 
   conta Conta @relation(fields: [contaId], references: [id], onDelete: Cascade)
 
@@ -231,6 +232,7 @@ enum OrigemLead {
   organico
 }
 
+/// Situação do lead, derivada da etapa do funil (as métricas e o Meta leem esta).
 enum EtapaLead {
   novo
   em_atendimento
@@ -239,56 +241,94 @@ enum EtapaLead {
   descartado
 }
 
+/// Andamento: um passo do funil. Venda: pede o valor e entra na receita. Perda: pede o motivo.
+enum TipoEtapa {
+  andamento
+  venda
+  perda
+}
+
+/// Etapa do funil que o admin define (nome, ordem, evento do Meta, onde aparece).
+model EtapaFunil {
+  id             String    @id @default(uuid()) @db.Uuid
+  contaId        String    @map("conta_id") @db.Uuid
+  /// Nome técnico, fixo depois de criado: é o "evento" que a automação da Kentro manda.
+  chave          String
+  nome           String
+  tipo           TipoEtapa
+  ordem          Int
+  /// Chegar aqui (ou além) conta como lead qualificado.
+  qualificada    Boolean   @default(false)
+  /// Evento da API de Conversões; null não envia.
+  eventoMeta     String?   @map("evento_meta")
+  botaoAtendente Boolean   @default(true) @map("botao_atendente")
+  noPainel       Boolean   @default(true) @map("no_painel")
+  ativa          Boolean   @default(true)
+  criadoEm       DateTime  @default(now()) @map("criado_em")
+
+  conta Conta  @relation(fields: [contaId], references: [id], onDelete: Cascade)
+  leads Lead[]
+
+  @@unique([contaId, chave])
+  @@index([contaId, ordem])
+  @@map("etapas_funil")
+}
+
 /// Uma ENTRADA de lead: um atendimento ou um formulário enviado. A mesma pessoa que volta por outro
 /// anúncio é outra entrada; "outras entradas" no painel são as do mesmo telefone.
 model Lead {
-  id              String     @id @default(uuid()) @db.Uuid
-  contaId         String     @map("conta_id") @db.Uuid
-  origem          OrigemLead
-  etapa           EtapaLead  @default(novo)
+  id               String     @id @default(uuid()) @db.Uuid
+  contaId          String     @map("conta_id") @db.Uuid
+  origem           OrigemLead
+  etapa            EtapaLead  @default(novo)
+  /// Etapa do funil em que o lead está (null: novo ou em atendimento).
+  etapaId          String?    @map("etapa_id") @db.Uuid
+  /// Etapas de andamento e venda por onde o lead passou: o funil conta quem chegou a cada uma ou além.
+  etapasAlcancadas String[]   @default([]) @map("etapas_alcancadas") @db.Uuid
 
   /// Só dígitos, com DDI (BR: 55 + DDD + número).
-  telefone        String?
+  telefone      String?
   /// DDD + 8 últimos dígitos: casa o mesmo número com e sem o nono dígito.
-  telefoneChave   String?    @map("telefone_chave")
-  nome            String?
-  email           String?
+  telefoneChave String? @map("telefone_chave")
+  nome          String?
+  email         String?
   /// Perguntas e respostas do formulário: [{ pergunta, resposta }].
-  respostas       Json       @default("[]")
+  respostas     Json    @default("[]")
 
   // Atendimento na Kentro
-  chatId          String?    @map("chat_id")
-  contatoId       String?    @map("contato_id")
-  atendenteId     String?    @map("atendente_id")
-  atendenteNome   String?    @map("atendente_nome")
+  chatId        String? @map("chat_id")
+  contatoId     String? @map("contato_id")
+  atendenteId   String? @map("atendente_id")
+  atendenteNome String? @map("atendente_nome")
 
   // Anúncio
-  contaAnuncioId  String?    @map("conta_anuncio_id") @db.Uuid
-  campanhaIdMeta  String?    @map("campanha_id_meta")
-  conjuntoIdMeta  String?    @map("conjunto_id_meta")
-  anuncioIdMeta   String?    @map("anuncio_id_meta")
+  contaAnuncioId   String? @map("conta_anuncio_id") @db.Uuid
+  campanhaIdMeta   String? @map("campanha_id_meta")
+  conjuntoIdMeta   String? @map("conjunto_id_meta")
+  anuncioIdMeta    String? @map("anuncio_id_meta")
   /// Como o anúncio foi identificado: "id" (exato), "url" ou "texto" (aproximados).
-  vinculoAnuncio  String?    @map("vinculo_anuncio")
-  anuncioUrl      String?    @map("anuncio_url")
-  anuncioTitulo   String?    @map("anuncio_titulo")
-  anuncioTexto    String?    @map("anuncio_texto")
-  ctwaClid        String?    @map("ctwa_clid")
-  leadgenId       String?    @map("leadgen_id")
-  formularioIdMeta String?   @map("formulario_id_meta")
+  vinculoAnuncio   String? @map("vinculo_anuncio")
+  anuncioUrl       String? @map("anuncio_url")
+  anuncioTitulo    String? @map("anuncio_titulo")
+  anuncioTexto     String? @map("anuncio_texto")
+  ctwaClid         String? @map("ctwa_clid")
+  leadgenId        String? @map("leadgen_id")
+  formularioIdMeta String? @map("formulario_id_meta")
 
-  valorVenda      Decimal?   @map("valor_venda") @db.Decimal(14, 2)
-  motivoDescarte  String?    @map("motivo_descarte")
+  valorVenda     Decimal? @map("valor_venda") @db.Decimal(14, 2)
+  motivoDescarte String?  @map("motivo_descarte")
 
-  recebidoEm      DateTime   @default(now()) @map("recebido_em")
-  atendidoEm      DateTime?  @map("atendido_em")
-  qualificadoEm   DateTime?  @map("qualificado_em")
-  vendaEm         DateTime?  @map("venda_em")
-  descartadoEm    DateTime?  @map("descartado_em")
-  atualizadoEm    DateTime   @updatedAt @map("atualizado_em")
+  recebidoEm    DateTime  @default(now()) @map("recebido_em")
+  atendidoEm    DateTime? @map("atendido_em")
+  qualificadoEm DateTime? @map("qualificado_em")
+  vendaEm       DateTime? @map("venda_em")
+  descartadoEm  DateTime? @map("descartado_em")
+  atualizadoEm  DateTime  @updatedAt @map("atualizado_em")
 
-  conta   Conta       @relation(fields: [contaId], references: [id], onDelete: Cascade)
-  eventos EventoLead[]
-  envios  EnvioCapi[]
+  conta      Conta        @relation(fields: [contaId], references: [id], onDelete: Cascade)
+  etapaFunil EtapaFunil?  @relation(fields: [etapaId], references: [id], onDelete: SetNull)
+  eventos    EventoLead[]
+  envios     EnvioCapi[]
 
   @@unique([contaId, chatId])
   @@unique([contaId, leadgenId])
@@ -316,20 +356,20 @@ model EventoLead {
 
 /// API de Conversões: para qual pixel (dataset) mandar e qual evento cada etapa do funil vira.
 model ConfigCapi {
-  contaId       String   @id @map("conta_id") @db.Uuid
-  ativo         Boolean  @default(false)
-  datasetId     String?  @map("dataset_id")
-  datasetNome   String?  @map("dataset_nome")
+  contaId      String   @id @map("conta_id") @db.Uuid
+  ativo        Boolean  @default(false)
+  datasetId    String?  @map("dataset_id")
+  datasetNome  String?  @map("dataset_nome")
   /// Token próprio do pixel (gerado no Gerenciador de Eventos). Sem ele, usa o token da conexão.
-  tokenCifrado  Bytes?   @map("token_cifrado")
-  iv            Bytes?
+  tokenCifrado Bytes?   @map("token_cifrado")
+  iv           Bytes?
   /// Conta do WhatsApp Business: com o ctwa_clid, permite o modo de mensageria comercial.
-  wabaId        String?  @map("waba_id")
+  wabaId       String?  @map("waba_id")
   /// Com código de teste, os eventos aparecem em "Eventos de teste" e não contam.
-  codigoTeste   String?  @map("codigo_teste")
+  codigoTeste  String?  @map("codigo_teste")
   /// { lead_recebido, qualificado, venda, descartado } → nome do evento ou null (não envia).
-  mapeamento    Json     @default("{}")
-  atualizadoEm  DateTime @updatedAt @map("atualizado_em")
+  mapeamento   Json     @default("{}")
+  atualizadoEm DateTime @updatedAt @map("atualizado_em")
 
   conta Conta @relation(fields: [contaId], references: [id], onDelete: Cascade)
 
@@ -345,24 +385,24 @@ enum StatusEnvio {
 
 /// Fila de envios à API de Conversões. event_id único por pixel: o mesmo gatilho nunca sai duas vezes.
 model EnvioCapi {
-  id                  BigInt      @id @default(autoincrement())
-  contaId             String      @map("conta_id") @db.Uuid
-  leadId              String?     @map("lead_id") @db.Uuid
-  datasetId           String      @map("dataset_id")
-  gatilho             String
-  eventName           String      @map("event_name")
-  eventId             String      @map("event_id")
+  id                 BigInt      @id @default(autoincrement())
+  contaId            String      @map("conta_id") @db.Uuid
+  leadId             String?     @map("lead_id") @db.Uuid
+  datasetId          String      @map("dataset_id")
+  gatilho            String
+  eventName          String      @map("event_name")
+  eventId            String      @map("event_id")
   /// O evento já montado (dados pessoais só em hash SHA-256).
-  payload             Json
-  status              StatusEnvio @default(pendente)
-  tentativas          Int         @default(0)
-  proximaTentativaEm  DateTime    @default(now()) @map("proxima_tentativa_em")
-  emEnvioAte          DateTime?   @map("em_envio_ate")
-  teste               Boolean     @default(false)
-  erro                String?
-  fbtraceId           String?     @map("fbtrace_id")
-  criadoEm            DateTime    @default(now()) @map("criado_em")
-  enviadoEm           DateTime?   @map("enviado_em")
+  payload            Json
+  status             StatusEnvio @default(pendente)
+  tentativas         Int         @default(0)
+  proximaTentativaEm DateTime    @default(now()) @map("proxima_tentativa_em")
+  emEnvioAte         DateTime?   @map("em_envio_ate")
+  teste              Boolean     @default(false)
+  erro               String?
+  fbtraceId          String?     @map("fbtrace_id")
+  criadoEm           DateTime    @default(now()) @map("criado_em")
+  enviadoEm          DateTime?   @map("enviado_em")
 
   conta Conta @relation(fields: [contaId], references: [id], onDelete: Cascade)
   lead  Lead? @relation(fields: [leadId], references: [id], onDelete: SetNull)

@@ -5,7 +5,7 @@ import { ESPERAR, Esperar } from '../../comum/fetch';
 import { instanteUtc } from '../../comum/sql';
 import { PrismaService } from '../../comum/prisma.service';
 import { ClienteGraph, TokenMeta } from '../cliente/graph';
-import { ErroMeta, LimiteMeta, TokenInvalido } from '../cliente/erros';
+import { ErroMeta, LimiteMeta, RecusadoPeloMeta, TokenInvalido } from '../cliente/erros';
 import { ConexaoService } from '../conexao/conexao.service';
 import { CAMPOS_INSIGHTS, LinhaInsight, normalizarInsight } from './insights';
 
@@ -32,6 +32,8 @@ const ESPERA_RELATORIO_MAX_MS = 30_000;
 const TEMPO_RELATORIO_MS = 15 * MIN;
 /** Uso da API (o pior dos cabeçalhos do Meta) a partir do qual a conta para antes de levar o bloqueio. */
 export const USO_ALTO_PCT = 75;
+/** Dentro de uma leitura longa, para ao passar disto (o Meta bloqueia em 100%). */
+const USO_PARAR_PCT = 85;
 const PAUSA_USO_ALTO_MIN = 10;
 const JANELA_USO_MIN = 5;
 
@@ -73,18 +75,21 @@ function orcamento(v: string | undefined): Prisma.Decimal | null {
 const texto = (v: string | undefined, max: number) => (v?.trim() ? v.trim().slice(0, max) : null);
 
 export type Tarefa = 'entidades' | 'carga' | 'horaria' | 'recalculo';
+type FaseEntidades = 'campanhas' | 'conjuntos' | 'anuncios';
+/** Teto de páginas por fase numa rodada: conta gigante continua na próxima. */
+const MAX_PAGINAS_ENTIDADES = 100;
 
 /** Quais tarefas a conta de anúncio deve rodar agora. */
 export function tarefasDevidas(c: ContaAnuncio, agora: Date): Tarefa[] {
   const venceu = (d: Date | null) => !d || d <= agora;
   const tarefas: Tarefa[] = [];
-  if (venceu(c.proximaEntidadesEm)) tarefas.push('entidades');
+  // Os números vêm antes da lista de campanhas e anúncios: são o que o painel precisa, e a lista
+  // (pesada em conta com muitos anúncios) não pode segurá-los se o Meta bloquear no meio dela.
   if (!c.cargaConcluidaEm) {
     if (venceu(c.proximaHorariaEm)) tarefas.push('carga');
-    return tarefas;
-  }
-  if (venceu(c.proximoRecalculoEm)) tarefas.push('recalculo');
+  } else if (venceu(c.proximoRecalculoEm)) tarefas.push('recalculo');
   else if (venceu(c.proximaHorariaEm)) tarefas.push('horaria');
+  if (venceu(c.proximaEntidadesEm)) tarefas.push('entidades');
   return tarefas;
 }
 
@@ -214,89 +219,129 @@ export class SincronizacaoService {
     return Math.max(PAUSA_USO_ALTO_MIN * 60, Math.ceil(uso.liberaEmSegundos ?? 0));
   }
 
+  /**
+   * Campanhas, conjuntos e anúncios, página a página. Cada página é gravada assim que chega e o ponto
+   * onde a leitura está fica na conta: um bloqueio do Meta no meio não joga fora o que veio, e a
+   * próxima rodada continua dali. Com o uso da API perto do teto, para antes de levar o bloqueio.
+   */
   async sincronizarEntidades(conta: ContaAnuncio, token: TokenMeta): Promise<void> {
-    const ctx = (operacao: string) => ({ contaId: conta.contaId, operacao });
-    const base = { contaId: conta.contaId, contaAnuncioId: conta.id };
-    const campanhas = await this.graph.listar<EntidadeGraph>(
-      token,
-      `${conta.idMeta}/campaigns`,
-      { fields: 'id,name,status,effective_status,objective,daily_budget,lifetime_budget', limit: 200 },
-      ctx('campanhas'),
-    );
-    const conjuntos = await this.graph.listar<EntidadeGraph>(
-      token,
-      `${conta.idMeta}/adsets`,
-      { fields: 'id,name,campaign_id,status,effective_status,daily_budget,lifetime_budget', limit: 200 },
-      ctx('conjuntos'),
-    );
-    const anuncios = await this.graph.listar<EntidadeGraph>(
-      token,
-      `${conta.idMeta}/ads`,
-      {
-        fields:
-          'id,name,adset_id,campaign_id,status,effective_status,creative{id,title,body,image_url,thumbnail_url,object_story_id,effective_object_story_id,instagram_permalink_url}',
-        thumbnail_width: 320,
-        thumbnail_height: 320,
-        filtering: STATUS_ANUNCIOS,
-        limit: 200,
-      },
-      ctx('anuncios'),
-    );
+    try {
+      await this.lerEntidades(conta, token);
+    } catch (erro) {
+      // Cursor guardado que o Meta não aceita mais (venceu): a próxima leitura recomeça do início.
+      if (erro instanceof RecusadoPeloMeta && conta.entidadesCursor) {
+        await this.prisma.contaAnuncio.update({ where: { id: conta.id }, data: { entidadesCursor: Prisma.DbNull } });
+      }
+      throw erro;
+    }
+  }
 
-    const operacoes: Prisma.PrismaPromise<unknown>[] = [
-      ...campanhas.map((c) => {
-        const d = {
-          nome: texto(c.name, 300) ?? c.id,
-          status: c.status ?? null,
-          statusEfetivo: c.effective_status ?? null,
-          objetivo: c.objective ?? null,
-          orcamentoDiario: orcamento(c.daily_budget),
-          orcamentoTotal: orcamento(c.lifetime_budget),
-        };
-        return this.prisma.campanha.upsert({
-          where: { contaAnuncioId_idMeta: { contaAnuncioId: conta.id, idMeta: c.id } },
-          create: { ...base, idMeta: c.id, ...d },
-          update: d,
-        });
-      }),
-      ...conjuntos.map((c) => {
-        const d = {
-          nome: texto(c.name, 300) ?? c.id,
-          campanhaIdMeta: String(c.campaign_id ?? ''),
-          status: c.status ?? null,
-          statusEfetivo: c.effective_status ?? null,
-          orcamentoDiario: orcamento(c.daily_budget),
-          orcamentoTotal: orcamento(c.lifetime_budget),
-        };
-        return this.prisma.conjunto.upsert({
-          where: { contaAnuncioId_idMeta: { contaAnuncioId: conta.id, idMeta: c.id } },
-          create: { ...base, idMeta: c.id, ...d },
-          update: d,
-        });
-      }),
-      ...anuncios.map((a) => {
-        const criativo = a.creative ?? {};
-        const d = {
-          nome: texto(a.name, 300) ?? a.id,
-          conjuntoIdMeta: String(a.adset_id ?? ''),
-          campanhaIdMeta: String(a.campaign_id ?? ''),
-          status: a.status ?? null,
-          statusEfetivo: a.effective_status ?? null,
-          criativoIdMeta: criativo.id ?? null,
-          miniaturaUrl: criativo.image_url || criativo.thumbnail_url || null,
-          titulo: texto(criativo.title, 300),
-          texto: texto(criativo.body, 2000),
-          objectStoryId: criativo.effective_object_story_id || criativo.object_story_id || null,
-          permalink: criativo.instagram_permalink_url ?? null,
-        };
-        return this.prisma.anuncio.upsert({
-          where: { contaAnuncioId_idMeta: { contaAnuncioId: conta.id, idMeta: a.id } },
-          create: { ...base, idMeta: a.id, ...d },
-          update: d,
-        });
-      }),
+  private async lerEntidades(conta: ContaAnuncio, token: TokenMeta): Promise<void> {
+    const base = { contaId: conta.contaId, contaAnuncioId: conta.id };
+    const fases: { fase: FaseEntidades; caminho: string; params: Record<string, string | number>; gravar: (itens: EntidadeGraph[]) => Prisma.PrismaPromise<unknown>[] }[] = [
+      {
+        fase: 'campanhas',
+        caminho: `${conta.idMeta}/campaigns`,
+        params: { fields: 'id,name,status,effective_status,objective,daily_budget,lifetime_budget', limit: 500 },
+        gravar: (itens) =>
+          itens.map((c) => {
+            const d = {
+              nome: texto(c.name, 300) ?? c.id,
+              status: c.status ?? null,
+              statusEfetivo: c.effective_status ?? null,
+              objetivo: c.objective ?? null,
+              orcamentoDiario: orcamento(c.daily_budget),
+              orcamentoTotal: orcamento(c.lifetime_budget),
+            };
+            return this.prisma.campanha.upsert({
+              where: { contaAnuncioId_idMeta: { contaAnuncioId: conta.id, idMeta: c.id } },
+              create: { ...base, idMeta: c.id, ...d },
+              update: d,
+            });
+          }),
+      },
+      {
+        fase: 'conjuntos',
+        caminho: `${conta.idMeta}/adsets`,
+        params: { fields: 'id,name,campaign_id,status,effective_status,daily_budget,lifetime_budget', limit: 500 },
+        gravar: (itens) =>
+          itens.map((c) => {
+            const d = {
+              nome: texto(c.name, 300) ?? c.id,
+              campanhaIdMeta: String(c.campaign_id ?? ''),
+              status: c.status ?? null,
+              statusEfetivo: c.effective_status ?? null,
+              orcamentoDiario: orcamento(c.daily_budget),
+              orcamentoTotal: orcamento(c.lifetime_budget),
+            };
+            return this.prisma.conjunto.upsert({
+              where: { contaAnuncioId_idMeta: { contaAnuncioId: conta.id, idMeta: c.id } },
+              create: { ...base, idMeta: c.id, ...d },
+              update: d,
+            });
+          }),
+      },
+      {
+        fase: 'anuncios',
+        caminho: `${conta.idMeta}/ads`,
+        params: {
+          fields:
+            'id,name,adset_id,campaign_id,status,effective_status,creative{id,title,body,image_url,thumbnail_url,object_story_id,effective_object_story_id,instagram_permalink_url}',
+          thumbnail_width: 320,
+          thumbnail_height: 320,
+          filtering: STATUS_ANUNCIOS,
+          limit: 200,
+        },
+        gravar: (itens) =>
+          itens.map((a) => {
+            const criativo = a.creative ?? {};
+            const d = {
+              nome: texto(a.name, 300) ?? a.id,
+              conjuntoIdMeta: String(a.adset_id ?? ''),
+              campanhaIdMeta: String(a.campaign_id ?? ''),
+              status: a.status ?? null,
+              statusEfetivo: a.effective_status ?? null,
+              criativoIdMeta: criativo.id ?? null,
+              miniaturaUrl: criativo.image_url || criativo.thumbnail_url || null,
+              titulo: texto(criativo.title, 300),
+              texto: texto(criativo.body, 2000),
+              objectStoryId: criativo.effective_object_story_id || criativo.object_story_id || null,
+              permalink: criativo.instagram_permalink_url ?? null,
+            };
+            return this.prisma.anuncio.upsert({
+              where: { contaAnuncioId_idMeta: { contaAnuncioId: conta.id, idMeta: a.id } },
+              create: { ...base, idMeta: a.id, ...d },
+              update: d,
+            });
+          }),
+      },
     ];
-    for (let i = 0; i < operacoes.length; i += 200) await this.prisma.$transaction(operacoes.slice(i, i + 200));
+
+    const salvo = conta.entidadesCursor as { fase?: FaseEntidades; after?: string | null } | null;
+    const inicio = Math.max(0, fases.findIndex((f) => f.fase === salvo?.fase));
+    let after = salvo?.fase ? salvo.after ?? undefined : undefined;
+    for (let i = inicio; i < fases.length; i++) {
+      const { fase, caminho, params, gravar } = fases[i];
+      for (let pagina = 0; pagina < MAX_PAGINAS_ENTIDADES; pagina++) {
+        const { dados, uso } = await this.graph.getComUso<{ data?: EntidadeGraph[]; paging?: { next?: string; cursors?: { after?: string } } }>(
+          token,
+          caminho,
+          after ? { ...params, after } : params,
+          { contaId: conta.contaId, operacao: fase },
+        );
+        const itens = dados.data ?? [];
+        for (let j = 0; j < itens.length; j += 200) await this.prisma.$transaction(gravar(itens.slice(j, j + 200)));
+        after = dados.paging?.next ? dados.paging.cursors?.after : undefined;
+        // Onde continuar se a rodada parar aqui (null: a leitura terminou).
+        const proxima = after ? { fase, after } : fases[i + 1] ? { fase: fases[i + 1].fase, after: null } : null;
+        await this.prisma.contaAnuncio.update({ where: { id: conta.id }, data: { entidadesCursor: proxima ?? Prisma.DbNull } });
+        if (!after) break;
+        if (uso && uso.pct >= USO_PARAR_PCT) {
+          throw new LimiteMeta(Math.max(PAUSA_USO_ALTO_MIN * 60, Math.ceil(uso.liberaEmSegundos)), 'Uso da API do Meta perto do limite: a leitura pausou antes do bloqueio.');
+        }
+      }
+      after = undefined;
+    }
   }
 
   /** Relê o intervalo inteiro e substitui o que havia nele (o Meta omite dias sem entrega). */

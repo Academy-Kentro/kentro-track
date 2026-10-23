@@ -75,9 +75,10 @@ function SituacaoConta({ c }: { c: ContaAnuncio }) {
   const s = c.sincronizacao;
   if (!c.selecionada) return null;
   if (s.limitadaAte) {
+    const progresso = !s.cargaConcluidaEm && s.diasCarregados ? ` Já carregados: ${s.diasCarregados} de 90 dias.` : '';
     return (
       <span class="kt-muted">
-        {s.ultimoErro ?? 'Pausada para não estourar o limite de consultas do Meta.'} Nova tentativa às {hora(s.limitadaAte)}.
+        {s.ultimoErro ?? 'Pausada para não estourar o limite de consultas do Meta.'} Nova tentativa às {hora(s.limitadaAte)}.{progresso}
       </span>
     );
   }

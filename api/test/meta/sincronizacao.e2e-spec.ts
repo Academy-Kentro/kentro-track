@@ -165,6 +165,36 @@ describe('sincronização com o Meta', () => {
     expect(conta.cargaDesde?.toISOString().slice(0, 10)).toBe('2026-10-08');
   });
 
+  it('lista de anúncios grande: grava cada página e, bloqueada no meio, continua dali; os números não esperam', async () => {
+    comInsights([linha('AD1', '2026-10-20', '100.50')]);
+    meta.get('act_111/ads', (req) =>
+      req.params.get('after') === 'C1'
+        ? erroMeta(80004, 'There have been too many calls')
+        : { corpo: { data: [{ id: 'AD1', name: 'Vídeo depoimento', adset_id: 'SET1', campaign_id: 'CAMP1' }], paging: { next: 'https://x', cursors: { after: 'C1' } } } },
+    );
+    expect(await sinc.executarProxima(AGORA)).toBe(true);
+
+    let conta = await prisma.contaAnuncio.findUniqueOrThrow({ where: { id: contaAnuncioId } });
+    // O bloco de números veio antes da lista e ficou; a primeira página de anúncios também.
+    expect(conta.cargaDesde?.toISOString().slice(0, 10)).toBe('2026-10-15');
+    expect(await prisma.insightDiario.count()).toBe(1);
+    expect(await prisma.anuncio.count()).toBe(1);
+    expect(conta.entidadesCursor).toEqual({ fase: 'anuncios', after: 'C1' });
+    expect(conta.ultimoErro).toBe(MENSAGEM_LIMITE);
+
+    // Liberado: a lista continua da página seguinte, sem reler campanhas e conjuntos.
+    meta.limpar();
+    comInsights([]);
+    meta.get('act_111/ads', { corpo: { data: [{ id: 'AD2', name: 'Carrossel', adset_id: 'SET2', campaign_id: 'CAMP1' }] } });
+    await prisma.contaAnuncio.update({ where: { id: contaAnuncioId }, data: { proximaEntidadesEm: null } });
+    expect(await sinc.executarProxima(minutos(61))).toBe(true);
+    expect(meta.chamadas.filter((c) => c.caminho === 'act_111/campaigns')).toHaveLength(0);
+    expect(meta.chamadas.find((c) => c.caminho === 'act_111/ads')?.params.get('after')).toBe('C1');
+    conta = await prisma.contaAnuncio.findUniqueOrThrow({ where: { id: contaAnuncioId } });
+    expect(conta.entidadesCursor).toBeNull();
+    expect(await prisma.anuncio.count()).toBe(2);
+  });
+
   it('a horária relê ontem e hoje e substitui o que havia nesses dias', async () => {
     await fazerCarga();
     meta.limpar();

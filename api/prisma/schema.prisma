@@ -106,6 +106,8 @@ model ContaAnuncio {
   ultimoErro            String?   @map("ultimo_erro")
   /// O Meta limitou as chamadas (ou o uso chegou perto do teto): nada de chamar antes disso.
   limitadaAte           DateTime? @map("limitada_ate")
+  /// Onde a leitura de campanhas, conjuntos e anúncios parou: { fase, after }. Null quando não há leitura pela metade.
+  entidadesCursor       Json?     @map("entidades_cursor")
 
   criadoEm     DateTime @default(now()) @map("criado_em")
   atualizadoEm DateTime @updatedAt @map("atualizado_em")

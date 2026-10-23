@@ -88,8 +88,8 @@ describe('tarefasDevidas', () => {
   const depois = new Date('2026-10-21T13:00:00Z');
   const conta = (c: Partial<ContaAnuncio>) => ({ proximaEntidadesEm: null, proximaHorariaEm: null, proximoRecalculoEm: null, cargaConcluidaEm: null, ...c }) as ContaAnuncio;
 
-  it('conta nova: entidades e carga', () => {
-    expect(tarefasDevidas(conta({}), agora)).toEqual(['entidades', 'carga']);
+  it('conta nova: os números antes da lista de campanhas e anúncios', () => {
+    expect(tarefasDevidas(conta({}), agora)).toEqual(['carga', 'entidades']);
   });
 
   it('carga com erro espera o horário da nova tentativa', () => {

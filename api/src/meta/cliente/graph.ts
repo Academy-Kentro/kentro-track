@@ -119,6 +119,11 @@ export class ClienteGraph {
     return this.chamar<T>('GET', token, caminho, params, ctx);
   }
 
+  /** GET que devolve também o uso da API informado pelo Meta (para frear antes do bloqueio). */
+  getComUso<T>(token: TokenMeta, caminho: string, params: Parametros, ctx: ContextoChamada): Promise<{ dados: T; uso: UsoMeta | null }> {
+    return this.chamarComUso<T>('GET', token, caminho, params, ctx);
+  }
+
   /** POST com os parâmetros na URL e, se houver, um corpo JSON (ex.: os eventos da API de Conversões). */
   post<T>(token: TokenMeta, caminho: string, params: Parametros, ctx: ContextoChamada, corpo?: unknown): Promise<T> {
     return this.chamar<T>('POST', token, caminho, params, ctx, corpo);
@@ -157,6 +162,17 @@ export class ClienteGraph {
   }
 
   private async chamar<T>(metodo: 'GET' | 'POST', token: TokenMeta, caminho: string, params: Parametros, ctx: ContextoChamada, corpo?: unknown): Promise<T> {
+    return (await this.chamarComUso<T>(metodo, token, caminho, params, ctx, corpo)).dados;
+  }
+
+  private async chamarComUso<T>(
+    metodo: 'GET' | 'POST',
+    token: TokenMeta,
+    caminho: string,
+    params: Parametros,
+    ctx: ContextoChamada,
+    corpo?: unknown,
+  ): Promise<{ dados: T; uso: UsoMeta | null }> {
     const url = this.montarUrl(token, caminho, params);
     let ultimo: ErroMeta = new MetaIndisponivel('O Meta não respondeu.');
     for (let tentativa = 1; tentativa <= MAX_TENTATIVAS; tentativa++) {
@@ -182,7 +198,7 @@ export class ClienteGraph {
         }
         if (resposta.ok && !(json as CorpoErro).error) {
           this.registrar({ ...ctx, statusHttp: status, ms: Date.now() - inicio, erroCodigo: null, uso });
-          return json as T;
+          return { dados: json as T, uso };
         }
         ultimo = classificar(status, json as CorpoErro, uso);
       } catch (e) {

@@ -30,7 +30,14 @@ export interface ContaAnuncio {
   ativaNoMeta: boolean;
   selecionada: boolean;
   definicaoLead: DefinicaoLead[];
-  sincronizacao: { cargaConcluidaEm: string | null; ultimaEm: string | null; ultimoErro: string | null; emAndamento: boolean };
+  sincronizacao: {
+    cargaConcluidaEm: string | null;
+    ultimaEm: string | null;
+    ultimoErro: string | null;
+    /** O Meta pediu para esperar (ou o uso chegou perto do teto): nova tentativa só depois disso. */
+    limitadaAte?: string | null;
+    emAndamento: boolean;
+  };
 }
 
 export type EstadoConexao =

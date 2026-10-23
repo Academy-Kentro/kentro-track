@@ -21,8 +21,17 @@ const INTERVALO_HORARIA_MIN = 60;
 const INTERVALO_ENTIDADES_MIN = 6 * 60;
 const HORA_RECALCULO = 4;
 
-const ESPERA_RELATORIO_MS = 3_000;
-const MAX_ESPERAS_RELATORIO = 200; // 10 minutos
+/** Cada consulta ao relatório conta no limite da conta de anúncio: a espera cresce até 30 s. */
+const ESPERA_RELATORIO_MS = 5_000;
+const ESPERA_RELATORIO_MAX_MS = 30_000;
+const TEMPO_RELATORIO_MS = 15 * MIN;
+/** Uso da API (o pior dos cabeçalhos do Meta) a partir do qual a conta para antes de levar o bloqueio. */
+export const USO_ALTO_PCT = 75;
+const PAUSA_USO_ALTO_MIN = 10;
+const JANELA_USO_MIN = 5;
+
+export const MENSAGEM_LIMITE =
+  'O Meta limitou as consultas a esta conta de anúncio por excesso de chamadas. O Kentro Track espera o tempo pedido e tenta de novo sozinho.';
 
 const STATUS_ANUNCIOS = JSON.stringify([
   { field: 'effective_status', operator: 'IN', value: ['ACTIVE', 'PAUSED', 'CAMPAIGN_PAUSED', 'ADSET_PAUSED', 'IN_PROCESS', 'WITH_ISSUES', 'PENDING_REVIEW', 'DISAPPROVED', 'PREAPPROVED', 'PENDING_BILLING_INFO', 'ARCHIVED'] },
@@ -116,7 +125,19 @@ export class SincronizacaoService {
   async executar(conta: ContaAnuncio, agora = new Date()): Promise<void> {
     const tarefas = tarefasDevidas(conta, agora);
     const dados: Prisma.ContaAnuncioUpdateInput = { emExecucaoAte: null };
+    const adiar = (ate: Date) => {
+      dados.limitadaAte = ate;
+      dados.proximaHorariaEm = ate;
+      if (tarefas.includes('entidades')) dados.proximaEntidadesEm = ate;
+      if (tarefas.includes('recalculo')) dados.proximoRecalculoEm = ate;
+    };
     try {
+      // Uso perto do teto nas últimas chamadas: espera antes de levar o bloqueio do Meta.
+      const pausa = await this.pausaPorUsoAlto(conta.contaId);
+      if (pausa) {
+        adiar(new Date(agora.getTime() + pausa * 1000));
+        return;
+      }
       const token = await this.conexao.token(conta.contaId);
       if (!token) return;
       const hoje = diaNoFuso(agora, conta.fuso);
@@ -140,14 +161,16 @@ export class SincronizacaoService {
       }
       dados.ultimaSincronizacaoEm = agora;
       dados.ultimoErro = null;
+      dados.limitadaAte = null;
     } catch (erro) {
       const mensagem = erro instanceof Error ? erro.message : String(erro);
-      dados.ultimoErro = mensagem.slice(0, 500);
+      dados.ultimoErro = (erro instanceof LimiteMeta ? MENSAGEM_LIMITE : mensagem).slice(0, 500);
       if (erro instanceof TokenInvalido) {
         await this.conexao.marcarReconectar(conta.contaId, mensagem);
+      } else if (erro instanceof LimiteMeta) {
+        adiar(new Date(agora.getTime() + Math.max(ESPERA_APOS_ERRO_MIN, Math.ceil(erro.esperarSegundos / 60)) * MIN));
       } else {
-        const esperaMin = erro instanceof LimiteMeta ? Math.max(ESPERA_APOS_ERRO_MIN, Math.ceil(erro.esperarSegundos / 60)) : ESPERA_APOS_ERRO_MIN;
-        const depois = new Date(agora.getTime() + esperaMin * MIN);
+        const depois = new Date(agora.getTime() + ESPERA_APOS_ERRO_MIN * MIN);
         dados.proximaHorariaEm = depois;
         if (tarefas.includes('entidades')) dados.proximaEntidadesEm = depois;
         if (tarefas.includes('recalculo')) dados.proximoRecalculoEm = depois;
@@ -156,6 +179,20 @@ export class SincronizacaoService {
     } finally {
       await this.prisma.contaAnuncio.update({ where: { id: conta.id }, data: dados });
     }
+  }
+
+  /**
+   * Segundos de pausa se a última chamada dos últimos minutos veio com o uso da API acima de
+   * USO_ALTO_PCT (o registro da aba Saúde guarda o pior dos cabeçalhos de uso do Meta).
+   */
+  private async pausaPorUsoAlto(contaId: string): Promise<number | null> {
+    const ultima = await this.prisma.chamadaMeta.findFirst({
+      where: { contaId, em: { gte: new Date(Date.now() - JANELA_USO_MIN * MIN) }, uso: { not: Prisma.DbNull } },
+      orderBy: { em: 'desc' },
+    });
+    const uso = ultima?.uso as { pct?: number; liberaEmSegundos?: number } | null | undefined;
+    if (!uso || (uso.pct ?? 0) < USO_ALTO_PCT) return null;
+    return Math.max(PAUSA_USO_ALTO_MIN * 60, Math.ceil(uso.liberaEmSegundos ?? 0));
   }
 
   async sincronizarEntidades(conta: ContaAnuncio, token: TokenMeta): Promise<void> {
@@ -273,7 +310,8 @@ export class SincronizacaoService {
   private async relatorioAssincrono(conta: ContaAnuncio, token: TokenMeta, params: Record<string, string | number>): Promise<LinhaInsight[]> {
     const ctx = { contaId: conta.contaId, operacao: 'insights-assincrono' };
     const { report_run_id: id } = await this.graph.post<{ report_run_id: string }>(token, `${conta.idMeta}/insights`, params, ctx);
-    for (let i = 0; i < MAX_ESPERAS_RELATORIO; i++) {
+    const fim = Date.now() + TEMPO_RELATORIO_MS;
+    for (let espera = ESPERA_RELATORIO_MS; Date.now() < fim; espera = Math.min(ESPERA_RELATORIO_MAX_MS, Math.round(espera * 1.5))) {
       const job = await this.graph.get<{ async_status?: string; async_percent_completion?: number }>(
         token,
         id,
@@ -286,7 +324,7 @@ export class SincronizacaoService {
       if (job.async_status === 'Job Failed' || job.async_status === 'Job Skipped') {
         throw new ErroMeta('RELATORIO_FALHOU', `O relatório do Meta não foi gerado (${job.async_status}). Tentamos de novo em alguns minutos.`);
       }
-      await this.esperar(ESPERA_RELATORIO_MS);
+      await this.esperar(espera);
     }
     throw new ErroMeta('RELATORIO_DEMOROU', 'O relatório do Meta demorou demais. Tentamos de novo em alguns minutos.');
   }

@@ -69,9 +69,18 @@ function FormularioToken({ api, aoConectar, cancelar }: { api: Api; aoConectar: 
   );
 }
 
+const hora = (iso: string) => new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
 function SituacaoConta({ c }: { c: ContaAnuncio }) {
   const s = c.sincronizacao;
   if (!c.selecionada) return null;
+  if (s.limitadaAte) {
+    return (
+      <span class="kt-muted">
+        {s.ultimoErro ?? 'Pausada para não estourar o limite de consultas do Meta.'} Nova tentativa às {hora(s.limitadaAte)}.
+      </span>
+    );
+  }
   if (s.ultimoErro) return <span class="kt-delta kt-delta-ruim">Erro: {s.ultimoErro}</span>;
   if (!s.cargaConcluidaEm) return <span class="kt-muted">{s.emAndamento ? 'Carregando os últimos 90 dias…' : 'Na fila para carregar os últimos 90 dias.'}</span>;
   return <span class="kt-muted">Atualizada {haQuanto(s.ultimaEm)}.</span>;
@@ -154,7 +163,7 @@ function ListaContas({ api, estado, mudar }: { api: Api; estado: Extract<EstadoC
                   </fieldset>
                   <div class="kt-linha-acoes">
                     <SituacaoConta c={c} />
-                    {c.selecionada && c.sincronizacao.cargaConcluidaEm && (
+                    {c.selecionada && c.sincronizacao.cargaConcluidaEm && !c.sincronizacao.limitadaAte && (
                       <button type="button" class="kt-link" onClick={() => sincronizar(c)}>
                         Sincronizar agora
                       </button>

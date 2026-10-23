@@ -101,6 +101,8 @@ model ContaAnuncio {
   emExecucaoAte         DateTime? @map("em_execucao_ate")
   ultimaSincronizacaoEm DateTime? @map("ultima_sincronizacao_em")
   ultimoErro            String?   @map("ultimo_erro")
+  /// O Meta limitou as chamadas (ou o uso chegou perto do teto): nada de chamar antes disso.
+  limitadaAte           DateTime? @map("limitada_ate")
 
   criadoEm     DateTime @default(now()) @map("criado_em")
   atualizadoEm DateTime @updatedAt @map("atualizado_em")

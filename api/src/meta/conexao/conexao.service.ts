@@ -43,6 +43,7 @@ function contaPublica(c: ContaAnuncio) {
       cargaConcluidaEm: c.cargaConcluidaEm,
       ultimaEm: c.ultimaSincronizacaoEm,
       ultimoErro: c.ultimoErro,
+      limitadaAte: c.limitadaAte && c.limitadaAte > new Date() ? c.limitadaAte : null,
       emAndamento: !!c.emExecucaoAte && c.emExecucaoAte > new Date(),
     },
   };
@@ -202,11 +203,18 @@ export class ConexaoService {
     return this.estado(contaId);
   }
 
-  /** "Sincronizar agora": antecipa a agenda da conta de anúncio. */
+  /** "Sincronizar agora": antecipa a agenda da conta de anúncio, menos durante a espera pedida pelo Meta. */
   async sincronizarAgora(contaId: string, contaAnuncioId: string) {
     const conta = await this.prisma.contaAnuncio.findFirst({ where: { id: contaAnuncioId, contaId, selecionada: true } });
     if (!conta) throw new ErroApi(404, 'NAO_ENCONTRADO', 'Conta de anúncio não encontrada ou não selecionada.');
     const agora = new Date();
+    if (conta.limitadaAte && conta.limitadaAte > agora) {
+      throw new ErroApi(
+        429,
+        'META_LIMITADO',
+        'O Meta pediu para esperar antes de novas consultas a esta conta. Sincronizar agora só renovaria o bloqueio: a sincronização volta sozinha.',
+      );
+    }
     await this.prisma.contaAnuncio.update({
       where: { id: conta.id },
       data: { proximaHorariaEm: agora, proximaEntidadesEm: agora, proximoRecalculoEm: agora, ultimoErro: null },

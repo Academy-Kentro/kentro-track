@@ -1,7 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
-import { SincronizacaoService } from '../../src/meta/sincronizacao/sincronizacao.service';
+import { MENSAGEM_LIMITE, SincronizacaoService } from '../../src/meta/sincronizacao/sincronizacao.service';
 import { criarAppDeTeste } from '../app';
 import { limparBanco } from '../limpar';
 import { comChave, registrarConta, Registro } from './apoio';
@@ -168,7 +168,29 @@ describe('sincronização com o Meta', () => {
       cabecalhos: { 'x-business-use-case-usage': JSON.stringify({ '1': [{ call_count: 100, estimated_time_to_regain_access: 40 }] }) },
     });
     await sinc.executarProxima(AGORA);
-    expect((await prisma.contaAnuncio.findUniqueOrThrow({ where: { id: contaAnuncioId } })).proximaHorariaEm).toEqual(minutos(40));
+    expect(await prisma.contaAnuncio.findUniqueOrThrow({ where: { id: contaAnuncioId } })).toMatchObject({
+      proximaHorariaEm: minutos(40),
+      limitadaAte: minutos(40),
+      ultimoErro: MENSAGEM_LIMITE,
+    });
+    // Durante a espera, "Sincronizar agora" não renova o bloqueio (o endpoint usa o relógio real).
+    await prisma.contaAnuncio.update({ where: { id: contaAnuncioId }, data: { limitadaAte: new Date(Date.now() + 30 * 60_000) } });
+    const agora = await comChave(request(app.getHttpServer()).post(`/v1/meta/contas-anuncio/${contaAnuncioId}/sincronizar`), r.chaveAdmin);
+    expect(agora.body.erro?.codigo).toBe('META_LIMITADO');
+  });
+
+  it('uso da API perto do teto: pausa antes de chamar o Meta e some do erro', async () => {
+    await prisma.chamadaMeta.create({ data: { contaId: r.contaId, operacao: 'anuncios', statusHttp: 200, ms: 10, uso: { pct: 90, liberaEmSegundos: 0 } } });
+    const antes = meta.chamadas.length;
+    expect(await sinc.executarProxima(AGORA)).toBe(true);
+    expect(meta.chamadas.length).toBe(antes);
+    expect(await prisma.contaAnuncio.findUniqueOrThrow({ where: { id: contaAnuncioId } })).toMatchObject({
+      cargaConcluidaEm: null,
+      ultimoErro: null,
+      limitadaAte: minutos(10),
+      proximaHorariaEm: minutos(10),
+      proximaEntidadesEm: minutos(10),
+    });
   });
 
   it('não pega conta travada, não selecionada ou de conta bloqueada', async () => {

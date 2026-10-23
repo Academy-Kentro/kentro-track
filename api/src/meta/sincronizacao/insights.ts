@@ -21,7 +21,6 @@ export const CAMPOS_INSIGHTS = [
   'campaign_id',
   'spend',
   'impressions',
-  'reach',
   'clicks',
   'inline_link_clicks',
   'actions',

@@ -91,28 +91,33 @@ describe('sincronização com o Meta', () => {
     await prisma.$disconnect();
   });
 
-  /** A carga inicial vai em blocos de 7 dias: uma rodada por bloco até fechar os 90. */
+  /** A carga inicial vai em blocos de 3 dias: uma rodada por bloco até fechar os 90. */
   async function fazerCarga() {
     comInsights([linha('AD1', '2026-10-20', '100.50'), linha('AD2', '2026-10-21', '20'), linha('AD1', '2026-07-24', '5')]);
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 40; i++) {
       if ((await prisma.contaAnuncio.findUniqueOrThrow({ where: { id: contaAnuncioId } })).cargaConcluidaEm) return;
       expect(await sinc.executarProxima(AGORA)).toBe(true);
     }
     throw new Error('a carga não terminou');
   }
 
-  it('conta nova: sincroniza entidades e carrega 90 dias em blocos de 7, do mais recente para trás', async () => {
+  it('conta nova: carrega 90 dias em blocos de 3, do mais recente para trás, e sincroniza as entidades', async () => {
     await fazerCarga();
 
     expect(meta.chamadas.some((c) => c.metodo === 'POST')).toBe(false);
     const blocos = intervalos();
-    expect(blocos).toHaveLength(13);
-    expect(blocos[0]).toEqual({ since: '2026-10-15', until: '2026-10-21' });
-    expect(blocos[1]).toEqual({ since: '2026-10-08', until: '2026-10-14' });
-    expect(blocos.at(-1)).toEqual({ since: '2026-07-24', until: '2026-07-29' });
+    expect(blocos).toHaveLength(30);
+    expect(blocos[0]).toEqual({ since: '2026-10-19', until: '2026-10-21' });
+    expect(blocos[1]).toEqual({ since: '2026-10-16', until: '2026-10-18' });
+    expect(blocos.at(-1)).toEqual({ since: '2026-07-24', until: '2026-07-26' });
     const consulta = meta.chamadas.find((c) => c.caminho === 'act_111/insights') as Requisicao;
     expect(consulta.params.get('level')).toBe('ad');
     expect(consulta.params.get('time_increment')).toBe('1');
+    // Alcance por anúncio e por dia é caro para o Meta e não aparece em nenhum painel.
+    expect(consulta.params.get('fields')).not.toContain('reach');
+    // A listagem pede só o que está no ar.
+    const anuncios = meta.chamadas.find((c) => c.caminho === 'act_111/ads') as Requisicao;
+    expect(JSON.parse(anuncios.params.get('filtering')!)[0].value).not.toContain('PAUSED');
     // Entidades só uma vez, na primeira rodada.
     expect(meta.chamadas.filter((c) => c.caminho === 'act_111/campaigns')).toHaveLength(1);
 
@@ -152,17 +157,17 @@ describe('sincronização com o Meta', () => {
 
     let conta = await prisma.contaAnuncio.findUniqueOrThrow({ where: { id: contaAnuncioId } });
     expect(conta).toMatchObject({ cargaConcluidaEm: null, ultimoErro: MENSAGEM_LIMITE, proximaEntidadesEm: minutos(360) });
-    expect(conta.cargaDesde?.toISOString().slice(0, 10)).toBe('2026-10-15');
+    expect(conta.cargaDesde?.toISOString().slice(0, 10)).toBe('2026-10-19');
     expect(await prisma.insightDiario.count()).toBe(1);
 
     // Liberado: continua do bloco seguinte, sem voltar ao começo.
     meta.limpar();
     comInsights([]);
     expect(await sinc.executarProxima(minutos(61))).toBe(true);
-    expect(intervalos()).toEqual([{ since: '2026-10-08', until: '2026-10-14' }]);
+    expect(intervalos()).toEqual([{ since: '2026-10-16', until: '2026-10-18' }]);
     conta = await prisma.contaAnuncio.findUniqueOrThrow({ where: { id: contaAnuncioId } });
     expect(conta).toMatchObject({ ultimoErro: null, limitadaAte: null });
-    expect(conta.cargaDesde?.toISOString().slice(0, 10)).toBe('2026-10-08');
+    expect(conta.cargaDesde?.toISOString().slice(0, 10)).toBe('2026-10-16');
   });
 
   it('lista de anúncios grande: grava cada página e, bloqueada no meio, continua dali; os números não esperam', async () => {
@@ -176,10 +181,10 @@ describe('sincronização com o Meta', () => {
 
     let conta = await prisma.contaAnuncio.findUniqueOrThrow({ where: { id: contaAnuncioId } });
     // O bloco de números veio antes da lista e ficou; a primeira página de anúncios também.
-    expect(conta.cargaDesde?.toISOString().slice(0, 10)).toBe('2026-10-15');
+    expect(conta.cargaDesde?.toISOString().slice(0, 10)).toBe('2026-10-19');
     expect(await prisma.insightDiario.count()).toBe(1);
     expect(await prisma.anuncio.count()).toBe(1);
-    expect(conta.entidadesCursor).toEqual({ fase: 'anuncios', after: 'C1' });
+    expect(conta.entidadesCursor).toMatchObject({ fase: 'anuncios', after: 'C1' });
     expect(conta.ultimoErro).toBe(MENSAGEM_LIMITE);
 
     // Liberado: a lista continua da página seguinte, sem reler campanhas e conjuntos.
@@ -193,6 +198,27 @@ describe('sincronização com o Meta', () => {
     conta = await prisma.contaAnuncio.findUniqueOrThrow({ where: { id: contaAnuncioId } });
     expect(conta.entidadesCursor).toBeNull();
     expect(await prisma.anuncio.count()).toBe(2);
+  });
+
+  it('fora do ar: o que saiu da listagem vira pausado; o que aparece nos números e falta vem pelos ids', async () => {
+    const ca = await prisma.contaAnuncio.findUniqueOrThrow({ where: { id: contaAnuncioId } });
+    const base = { contaId: r.contaId, contaAnuncioId };
+    await prisma.campanha.create({ data: { ...base, idMeta: 'CAMP_VELHA', nome: 'Feirão de julho', statusEfetivo: 'ACTIVE' } });
+    // O dinheiro gasto por um anúncio já arquivado: o nome vem pela consulta por ids.
+    comInsights([linha('AD9', '2026-10-20', '50', { adset_id: 'SET9', campaign_id: 'CAMP9' })]);
+    meta.get('', (req) => {
+      const ids = req.params.get('ids')!.split(',');
+      return { corpo: Object.fromEntries(ids.map((id) => [id, { id, name: `Arquivado ${id}`, effective_status: 'ARCHIVED', campaign_id: 'CAMP9', adset_id: 'SET9' }])) };
+    });
+    expect(ca.cargaConcluidaEm).toBeNull();
+    expect(await sinc.executarProxima(AGORA)).toBe(true);
+
+    expect((await prisma.campanha.findFirstOrThrow({ where: { idMeta: 'CAMP_VELHA' } })).statusEfetivo).toBe('PAUSED');
+    expect((await prisma.campanha.findFirstOrThrow({ where: { idMeta: 'CAMP1' } })).statusEfetivo).toBe('ACTIVE');
+    expect(await prisma.anuncio.findFirst({ where: { idMeta: 'AD9' } })).toMatchObject({ nome: 'Arquivado AD9', statusEfetivo: 'ARCHIVED' });
+    expect(await prisma.campanha.findFirst({ where: { idMeta: 'CAMP9' } })).toMatchObject({ nome: 'Arquivado CAMP9' });
+    const porId = meta.chamadas.find((c) => c.caminho === '' && c.params.get('ids') === 'AD9')!;
+    expect(porId.params.get('filtering')).toBeNull();
   });
 
   it('a horária relê ontem e hoje e substitui o que havia nesses dias', async () => {

@@ -15,21 +15,24 @@ export const DIAS_CARGA = 90;
  * A carga inicial vai em blocos (do mais recente para trás) com o progresso gravado: um bloqueio
  * do Meta no meio não joga fora o que já veio, e cada bloco cabe na consulta síncrona.
  */
-export const BLOCO_CARGA_DIAS = 7;
+export const BLOCO_CARGA_DIAS = 3;
+/**
+ * Números por anúncio e por dia: o Meta demora a montar, cresce com o número de anúncios e o
+ * de dias. Consultas de poucos dias, com tempo de sobra, em vez de um relatório grande.
+ */
+const DIAS_POR_CONSULTA = 3;
+const TEMPO_INSIGHTS_MS = 120_000;
+/** Ids que faltam por lote na consulta por ids (o Meta aceita até 50). */
+const IDS_POR_CONSULTA = 50;
+const MAX_IDS_FALTANDO = 500;
 /** O Meta recalcula a atribuição dos últimos dias: o recálculo diário relê esta janela. */
 export const DIAS_RECALCULO = 7;
-/** Acima disso, o relatório síncrono costuma estourar o tempo: usa o assíncrono. */
-const DIAS_SINCRONO = 7;
 const TRAVA_MIN = 20;
 const ESPERA_APOS_ERRO_MIN = 15;
 const INTERVALO_HORARIA_MIN = 60;
 const INTERVALO_ENTIDADES_MIN = 6 * 60;
 const HORA_RECALCULO = 4;
 
-/** Cada consulta ao relatório conta no limite da conta de anúncio: a espera cresce até 30 s. */
-const ESPERA_RELATORIO_MS = 5_000;
-const ESPERA_RELATORIO_MAX_MS = 30_000;
-const TEMPO_RELATORIO_MS = 15 * MIN;
 /** Uso da API (o pior dos cabeçalhos do Meta) a partir do qual a conta para antes de levar o bloqueio. */
 export const USO_ALTO_PCT = 75;
 /** Dentro de uma leitura longa, para ao passar disto (o Meta bloqueia em 100%). */
@@ -40,9 +43,13 @@ const JANELA_USO_MIN = 5;
 export const MENSAGEM_LIMITE =
   'O Meta limitou as consultas a esta conta de anúncio por excesso de chamadas. O Kentro Track espera o tempo pedido e tenta de novo sozinho.';
 
-const STATUS_ANUNCIOS = JSON.stringify([
-  { field: 'effective_status', operator: 'IN', value: ['ACTIVE', 'PAUSED', 'CAMPAIGN_PAUSED', 'ADSET_PAUSED', 'IN_PROCESS', 'WITH_ISSUES', 'PENDING_REVIEW', 'DISAPPROVED', 'PREAPPROVED', 'PENDING_BILLING_INFO', 'ARCHIVED'] },
-]);
+/**
+ * A listagem traz só o que está no ar: numa conta antiga, pausados e arquivados são milhares e
+ * estouram o limite do Meta. Os que aparecem nos números do período vêm depois, pelos ids.
+ */
+const ATIVOS = ['ACTIVE', 'IN_PROCESS', 'WITH_ISSUES'];
+const ATIVOS_ANUNCIO = [...ATIVOS, 'PENDING_REVIEW', 'PREAPPROVED'];
+const soAtivos = (status: string[]) => JSON.stringify([{ field: 'effective_status', operator: 'IN', value: status }]);
 
 interface EntidadeGraph {
   id: string;
@@ -242,7 +249,7 @@ export class SincronizacaoService {
       {
         fase: 'campanhas',
         caminho: `${conta.idMeta}/campaigns`,
-        params: { fields: 'id,name,status,effective_status,objective,daily_budget,lifetime_budget', limit: 500 },
+        params: { fields: 'id,name,status,effective_status,objective,daily_budget,lifetime_budget', filtering: soAtivos(ATIVOS), limit: 500 },
         gravar: (itens) =>
           itens.map((c) => {
             const d = {
@@ -263,7 +270,7 @@ export class SincronizacaoService {
       {
         fase: 'conjuntos',
         caminho: `${conta.idMeta}/adsets`,
-        params: { fields: 'id,name,campaign_id,status,effective_status,daily_budget,lifetime_budget', limit: 500 },
+        params: { fields: 'id,name,campaign_id,status,effective_status,daily_budget,lifetime_budget', filtering: soAtivos(ATIVOS), limit: 500 },
         gravar: (itens) =>
           itens.map((c) => {
             const d = {
@@ -289,7 +296,7 @@ export class SincronizacaoService {
             'id,name,adset_id,campaign_id,status,effective_status,creative{id,title,body,image_url,thumbnail_url,object_story_id,effective_object_story_id,instagram_permalink_url}',
           thumbnail_width: 320,
           thumbnail_height: 320,
-          filtering: STATUS_ANUNCIOS,
+          filtering: soAtivos(ATIVOS_ANUNCIO),
           limit: 200,
         },
         gravar: (itens) =>
@@ -317,9 +324,11 @@ export class SincronizacaoService {
       },
     ];
 
-    const salvo = conta.entidadesCursor as { fase?: FaseEntidades; after?: string | null } | null;
+    const salvo = conta.entidadesCursor as { fase?: FaseEntidades; after?: string | null; desde?: string } | null;
     const inicio = Math.max(0, fases.findIndex((f) => f.fase === salvo?.fase));
     let after = salvo?.fase ? salvo.after ?? undefined : undefined;
+    // Quando a leitura completa começou (ela pode levar várias rodadas): o que não foi visto desde então saiu do ar.
+    const desde = salvo?.desde ?? new Date().toISOString();
     for (let i = inicio; i < fases.length; i++) {
       const { fase, caminho, params, gravar } = fases[i];
       for (let pagina = 0; pagina < MAX_PAGINAS_ENTIDADES; pagina++) {
@@ -333,7 +342,7 @@ export class SincronizacaoService {
         for (let j = 0; j < itens.length; j += 200) await this.prisma.$transaction(gravar(itens.slice(j, j + 200)));
         after = dados.paging?.next ? dados.paging.cursors?.after : undefined;
         // Onde continuar se a rodada parar aqui (null: a leitura terminou).
-        const proxima = after ? { fase, after } : fases[i + 1] ? { fase: fases[i + 1].fase, after: null } : null;
+        const proxima = after ? { fase, after, desde } : fases[i + 1] ? { fase: fases[i + 1].fase, after: null, desde } : null;
         await this.prisma.contaAnuncio.update({ where: { id: conta.id }, data: { entidadesCursor: proxima ?? Prisma.DbNull } });
         if (!after) break;
         if (uso && uso.pct >= USO_PARAR_PCT) {
@@ -342,23 +351,74 @@ export class SincronizacaoService {
       }
       after = undefined;
     }
+    // Estava no ar e não veio na listagem de agora: foi pausado (ou arquivado). Sai do grupo das ativas.
+    for (const tabela of ['campanhas', 'conjuntos', 'anuncios']) {
+      await this.prisma.$executeRaw`
+        UPDATE ${Prisma.raw(tabela)} SET status_efetivo = 'PAUSED'
+        WHERE conta_anuncio_id = ${conta.id}::uuid AND status_efetivo = ANY(${ATIVOS_ANUNCIO}::text[])
+          AND atualizado_em < ${instanteUtc(new Date(desde))}`;
+    }
+    await this.buscarFaltando(conta, token, fases);
+  }
+
+  /**
+   * Campanhas, conjuntos e anúncios que aparecem nos números do período e não vieram na listagem
+   * (arquivados): pelos ids, 50 por consulta, para o painel mostrar o nome em vez do número.
+   */
+  private async buscarFaltando(
+    conta: ContaAnuncio,
+    token: TokenMeta,
+    fases: { fase: FaseEntidades; params: Record<string, string | number>; gravar: (itens: EntidadeGraph[]) => Prisma.PrismaPromise<unknown>[] }[],
+  ): Promise<void> {
+    const colunas: Record<FaseEntidades, { coluna: string; tabela: string }> = {
+      campanhas: { coluna: 'campanha_id_meta', tabela: 'campanhas' },
+      conjuntos: { coluna: 'conjunto_id_meta', tabela: 'conjuntos' },
+      anuncios: { coluna: 'anuncio_id_meta', tabela: 'anuncios' },
+    };
+    for (const { fase, params, gravar } of fases) {
+      const { coluna, tabela } = colunas[fase];
+      const faltando = await this.prisma.$queryRaw<{ id: string }[]>`
+        SELECT DISTINCT i.${Prisma.raw(coluna)} AS id FROM insights_diarios i
+        WHERE i.conta_anuncio_id = ${conta.id}::uuid AND i.${Prisma.raw(coluna)} <> ''
+          AND NOT EXISTS (SELECT 1 FROM ${Prisma.raw(tabela)} e WHERE e.conta_anuncio_id = i.conta_anuncio_id AND e.id_meta = i.${Prisma.raw(coluna)})
+        LIMIT ${MAX_IDS_FALTANDO}`;
+      const { filtering: _, limit: __, ...campos } = params;
+      for (let i = 0; i < faltando.length; i += IDS_POR_CONSULTA) {
+        const lote = faltando.slice(i, i + IDS_POR_CONSULTA).map((f) => f.id);
+        const { dados, uso } = await this.graph.getComUso<Record<string, EntidadeGraph>>(token, '', { ...campos, ids: lote.join(',') }, { contaId: conta.contaId, operacao: `${fase}-por-id` });
+        await this.prisma.$transaction(gravar(Object.values(dados).filter((e) => e && e.id)));
+        if (uso && uso.pct >= USO_PARAR_PCT) {
+          throw new LimiteMeta(Math.max(PAUSA_USO_ALTO_MIN * 60, Math.ceil(uso.liberaEmSegundos)), 'Uso da API do Meta perto do limite: a leitura pausou antes do bloqueio.');
+        }
+      }
+    }
   }
 
   /** Relê o intervalo inteiro e substitui o que havia nele (o Meta omite dias sem entrega). */
   async sincronizarInsights(conta: ContaAnuncio, token: TokenMeta, de: string, ate: string): Promise<number> {
+    let total = 0;
+    for (let inicio = de; inicio <= ate; inicio = somarDias(inicio, DIAS_POR_CONSULTA)) {
+      const fim = [ate, somarDias(inicio, DIAS_POR_CONSULTA - 1)].sort()[0];
+      total += await this.insightsDoIntervalo(conta, token, inicio, fim);
+    }
+    return total;
+  }
+
+  private async insightsDoIntervalo(conta: ContaAnuncio, token: TokenMeta, de: string, ate: string): Promise<number> {
     const params = {
       level: 'ad',
       time_increment: 1,
       time_range: JSON.stringify({ since: de, until: ate }),
       fields: CAMPOS_INSIGHTS,
-      limit: 500,
+      limit: 250,
     };
-    const ctx = { contaId: conta.contaId, operacao: 'insights' };
-    const linhas =
-      diasEntre(de, ate) > DIAS_SINCRONO
-        ? await this.relatorioAssincrono(conta, token, params)
-        : await this.graph.listar<LinhaInsight>(token, `${conta.idMeta}/insights`, params, ctx, 200);
-
+    const linhas = await this.graph.listar<LinhaInsight>(
+      token,
+      `${conta.idMeta}/insights`,
+      params,
+      { contaId: conta.contaId, operacao: 'insights', tempoLimiteMs: TEMPO_INSIGHTS_MS },
+      200,
+    );
     const ids = { contaId: conta.contaId, contaAnuncioId: conta.id };
     const novas = linhas.filter((l) => l.ad_id && l.date_start).map((l) => normalizarInsight(l, ids));
     await this.prisma.$transaction(
@@ -369,27 +429,5 @@ export class SincronizacaoService {
       { timeout: 120_000 },
     );
     return novas.length;
-  }
-
-  private async relatorioAssincrono(conta: ContaAnuncio, token: TokenMeta, params: Record<string, string | number>): Promise<LinhaInsight[]> {
-    const ctx = { contaId: conta.contaId, operacao: 'insights-assincrono' };
-    const { report_run_id: id } = await this.graph.post<{ report_run_id: string }>(token, `${conta.idMeta}/insights`, params, ctx);
-    const fim = Date.now() + TEMPO_RELATORIO_MS;
-    for (let espera = ESPERA_RELATORIO_MS; Date.now() < fim; espera = Math.min(ESPERA_RELATORIO_MAX_MS, Math.round(espera * 1.5))) {
-      const job = await this.graph.get<{ async_status?: string; async_percent_completion?: number }>(
-        token,
-        id,
-        { fields: 'async_status,async_percent_completion' },
-        { ...ctx, operacao: 'insights-assincrono-estado' },
-      );
-      if (job.async_status === 'Job Completed') {
-        return this.graph.listar<LinhaInsight>(token, `${id}/insights`, { limit: 500 }, ctx, 500);
-      }
-      if (job.async_status === 'Job Failed' || job.async_status === 'Job Skipped') {
-        throw new ErroMeta('RELATORIO_FALHOU', `O relatório do Meta não foi gerado (${job.async_status}). Tentamos de novo em alguns minutos.`);
-      }
-      await this.esperar(espera);
-    }
-    throw new ErroMeta('RELATORIO_DEMOROU', 'O relatório do Meta demorou demais. Tentamos de novo em alguns minutos.');
   }
 }

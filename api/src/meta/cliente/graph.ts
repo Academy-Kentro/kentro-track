@@ -17,6 +17,8 @@ export interface ContextoChamada {
   contaId?: string;
   /** Nome curto para a aba Saúde, ex.: "insights", "campanhas". Nunca a URL com parâmetros. */
   operacao: string;
+  /** Consulta que o Meta demora a montar (números por anúncio e por dia): espera mais que o padrão. */
+  tempoLimiteMs?: number;
 }
 
 export interface RegistroChamada extends ContextoChamada {
@@ -175,7 +177,9 @@ export class ClienteGraph {
   ): Promise<{ dados: T; uso: UsoMeta | null }> {
     const url = this.montarUrl(token, caminho, params);
     let ultimo: ErroMeta = new MetaIndisponivel('O Meta não respondeu.');
-    for (let tentativa = 1; tentativa <= MAX_TENTATIVAS; tentativa++) {
+    // Tempo esgotado numa consulta longa não melhora repetindo três vezes seguidas: só uma nova tentativa.
+    const tentativas = ctx.tempoLimiteMs ? 2 : MAX_TENTATIVAS;
+    for (let tentativa = 1; tentativa <= tentativas; tentativa++) {
       const inicio = Date.now();
       let status: number | null = null;
       let uso: UsoMeta | null = null;
@@ -185,7 +189,7 @@ export class ClienteGraph {
           method: metodo,
           headers: { Authorization: `Bearer ${token.valor}`, ...(corpo === undefined ? {} : { 'Content-Type': 'application/json' }) },
           body: corpo === undefined ? undefined : JSON.stringify(corpo),
-          signal: AbortSignal.timeout(this.opcoes.tempoLimiteMs ?? 15_000),
+          signal: AbortSignal.timeout(ctx.tempoLimiteMs ?? this.opcoes.tempoLimiteMs ?? 15_000),
         });
         status = resposta.status;
         uso = lerUso(resposta.headers);
@@ -206,7 +210,7 @@ export class ClienteGraph {
       }
       this.registrar({ ...ctx, statusHttp: status, ms: Date.now() - inicio, erroCodigo: ultimo.codigo, uso });
 
-      const ultimaTentativa = tentativa === MAX_TENTATIVAS;
+      const ultimaTentativa = tentativa === tentativas;
       if (ultimo instanceof MetaIndisponivel && !ultimaTentativa) {
         await this.esperar(500 * 2 ** (tentativa - 1));
         continue;

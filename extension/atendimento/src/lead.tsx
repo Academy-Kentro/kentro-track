@@ -192,6 +192,30 @@ export function Etapas({ api, lead, mudar }: { api: Api; lead: LeadPainel; mudar
   };
   const valorNumero = Number(valor.replace(/\./g, '').replace(',', '.'));
   const atual = lead.etapaNome ?? ETAPA[lead.etapa];
+  // Passos do funil quebram linha; venda e perda ficam juntas embaixo, que é onde a conversa termina.
+  const passos = etapas.filter((e) => e.tipo === 'andamento');
+  const desfechos = etapas.filter((e) => e.tipo !== 'andamento');
+
+  const botao = (e: EtapaBotao) => {
+    const { classe, icone } = ESTILO[e.tipo];
+    const pedeDado = e.tipo !== 'andamento';
+    const atualEsta = lead.etapaId === e.id;
+    return (
+      <button
+        key={e.id}
+        type="button"
+        class={`kt-botao ${classe}`}
+        title={e.nome}
+        aria-expanded={pedeDado ? aberta === e.id : undefined}
+        aria-pressed={atualEsta || undefined}
+        disabled={enviando || (!pedeDado && atualEsta)}
+        onClick={() => (pedeDado ? setAberta(aberta === e.id ? null : e.id) : enviar(e.id, e.nome))}
+      >
+        <Icone nome={e.qualificada ? 'estrela' : icone} tamanho={14} />
+        <span class="kt-botao-rotulo">{e.nome}</span>
+      </button>
+    );
+  };
 
   return (
     <section class="kt-card kt-etapas">
@@ -207,27 +231,8 @@ export function Etapas({ api, lead, mudar }: { api: Api; lead: LeadPainel; mudar
         )}
       </div>
       {erro && <Aviso tipo="erro">{erro}</Aviso>}
-      <div class="kt-botoes-etapa">
-        {etapas.map((e) => {
-          const { classe, icone } = ESTILO[e.tipo];
-          const pedeDado = e.tipo !== 'andamento';
-          const atualEsta = lead.etapaId === e.id;
-          return (
-            <button
-              key={e.id}
-              type="button"
-              class={`kt-botao ${classe}`}
-              aria-expanded={pedeDado ? aberta === e.id : undefined}
-              aria-pressed={atualEsta || undefined}
-              disabled={enviando || (!pedeDado && atualEsta)}
-              onClick={() => (pedeDado ? setAberta(aberta === e.id ? null : e.id) : enviar(e.id, e.nome))}
-            >
-              <Icone nome={e.qualificada ? 'estrela' : icone} tamanho={14} />
-              {e.nome}
-            </button>
-          );
-        })}
-      </div>
+      {passos.length > 0 && <div class="kt-botoes-etapa kt-botoes-passos">{passos.map(botao)}</div>}
+      {desfechos.length > 0 && <div class="kt-botoes-etapa kt-botoes-desfecho">{desfechos.map(botao)}</div>}
       {formulario?.tipo === 'venda' && (
         <div class="kt-formulario-etapa">
           <label class="kt-campo">

@@ -26,9 +26,15 @@ body { background: var(--kt-fundo); }
 /* Etapa */
 .kt-etapa-atual { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
 .kt-reabrir { margin-left: auto; font-size: .85em; }
-.kt-botoes-etapa { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-.kt-botoes-etapa .kt-botao { padding: 9px 6px; font-size: .86em; }
+/* Passos: quantos couberem por linha, crescendo para fechar a linha. Desfechos: meio a meio. */
+.kt-botoes-etapa { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.kt-botoes-etapa .kt-botao { flex: 1 1 auto; min-width: 0; padding: 8px 10px; font-size: .86em; }
+.kt-botoes-desfecho { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); }
+.kt-botoes-passos + .kt-botoes-desfecho { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--kt-linha); }
+.kt-botao-rotulo { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .kt-botoes-etapa .kt-botao[aria-expanded="true"] { box-shadow: var(--kt-foco); }
+/* A etapa atual fica marcada, não apagada como um botão desabilitado. */
+.kt-botoes-etapa .kt-botao[aria-pressed="true"] { opacity: 1; background: var(--ext-color-primary); color: var(--ext-color-on-primary); }
 .kt-formulario-etapa {
   margin-top: 10px;
   padding: 10px;

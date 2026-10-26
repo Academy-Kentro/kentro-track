@@ -6,6 +6,7 @@ import type { Omni } from '../../comum/omni';
 import { ConexaoMeta } from './conexao-meta';
 import { EtapasFunil } from './etapas-funil';
 import { EventosMeta } from './eventos-meta';
+import { FormulariosMeta } from './formularios-meta';
 import { IntegracaoAtendimento } from './integracao';
 import type { Papel } from './tipos';
 
@@ -74,6 +75,7 @@ export function Configuracoes({ omni, api }: { omni: Omni; api: Api }) {
     <>
       <ConexaoMeta omni={omni} api={api} />
       <IntegracaoAtendimento omni={omni} api={api} />
+      <FormulariosMeta api={api} />
       <EtapasFunil api={api} />
       <EventosMeta omni={omni} api={api} />
       <Chaves omni={omni} api={api} />

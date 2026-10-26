@@ -328,6 +328,16 @@ th[aria-sort] .kt-ordenar { color: var(--ext-color-primary); }
 
 .kt-pixels { list-style: none; padding: 0; margin: 0 0 12px; display: grid; gap: 6px; }
 .kt-pixels li { padding: 8px 12px; border: 1px solid var(--kt-linha); border-radius: var(--kt-r-p); }
+
+/* Formulários do Meta */
+.kt-campo-largo { flex: 1 1 320px; }
+.kt-campo-largo input { max-width: none; }
+.kt-formularios-pagina { margin-top: 14px; }
+.kt-formularios-pagina h4 { margin: 0 0 6px; font-size: .85em; color: var(--ext-color-text-muted); }
+.kt-formularios { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+.kt-formularios li { padding: 10px 12px; border: 1px solid var(--kt-linha); border-radius: var(--kt-r-p); }
+.kt-formularios li p { margin: 4px 0 0 46px; }
+.kt-erro-texto { color: var(--ext-color-error); font-size: .85em; }
 .kt-mapeamento { margin-bottom: 8px; }
 .kt-mapeamento th { font-weight: 500; text-transform: none; letter-spacing: 0; font-size: .95em; color: var(--ext-color-text); white-space: normal; position: static; background: none; }
 .kt-mapeamento th .kt-muted { font-size: .85em; font-weight: 400; }

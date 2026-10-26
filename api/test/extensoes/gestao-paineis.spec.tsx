@@ -700,3 +700,65 @@ describe('gestão: aba Análises', () => {
     expect(campanha.querySelector('.kt-dica')?.textContent).toContain('2 vendas');
   });
 });
+
+describe('gestão: formulários do Meta', () => {
+  const CAPTURA = 'https://x.atenderbem.com/webhookcapture/capture/abc';
+  const FORMULARIOS = {
+    conectado: true,
+    permissoesFaltando: ['leads_retrieval'],
+    capturaKentroUrl: null,
+    formularios: [],
+    envios: [{ leadId: 'l1', nome: 'Maria', telefone: '(38) 9****-0000', formulario: 'Orçamento', recebidoEm: '2026-10-27T13:00:00Z', status: 'erro', tentativas: 6, erro: 'A Kentro respondeu 503.' }],
+  };
+  const BUSCADOS = {
+    ...FORMULARIOS,
+    avisos: ['Página "Outra": falta a permissão leads_retrieval no token'],
+    formularios: [
+      { id: 'f1', idMeta: '11', nome: 'Orçamento', status: 'ACTIVE', pagina: 'Loja', selecionado: false, perguntas: ['Nome completo', 'Qual serviço?'], ultimaLeituraEm: null, ultimoErro: null, leads30Dias: 0 },
+      { id: 'f2', idMeta: '12', nome: 'Antigo', status: 'ARCHIVED', pagina: 'Loja', selecionado: false, perguntas: [], ultimaLeituraEm: null, ultimoErro: null, leads30Dias: 0 },
+    ],
+  };
+
+  it('busca os formulários, liga um, cola a captura, testa, salva e reenvia o que deu erro', async () => {
+    const falso = await montar({
+      http: (c) => {
+        const caminho = new URL(c.url).pathname;
+        if (caminho === '/v1/formularios/buscar') return ok(BUSCADOS);
+        if (caminho === '/v1/formularios/testar-envio') return ok({ ok: true });
+        if (caminho === '/v1/formularios' && c.method === 'PUT') return ok({ ...BUSCADOS, capturaKentroUrl: CAPTURA });
+        if (caminho === '/v1/formularios/envios/l1/reenviar') return ok({ ...FORMULARIOS, envios: [{ ...FORMULARIOS.envios[0], status: 'pendente' }] });
+        if (caminho === '/v1/formularios') return ok(FORMULARIOS);
+        return api({ '/v1/conta': CONTA, '/v1/painel/filtros': FILTROS, '/v1/painel/visao-geral': VISAO, '/v1/meta/conexao': { conectado: false, loginMetaDisponivel: false, contasAnuncio: [] } })(c);
+      },
+    });
+    await clicar(botao('Configurações'));
+    const secao = () => [...raiz.querySelectorAll('section')].find((s) => s.textContent?.startsWith('Formulários do Meta'))!;
+    expect(secao().textContent).toContain('não tem leads_retrieval');
+    expect(secao().textContent).toContain('A Kentro respondeu 503.');
+
+    await clicar(botao('Buscar formulários no Meta'));
+    expect(secao().textContent).toContain('Página "Outra"');
+    expect(secao().querySelector('h4')?.textContent).toBe('Loja');
+    expect(secao().textContent).toContain('Arquivado');
+
+    const campo = secao().querySelector('.kt-campo-largo input') as HTMLInputElement;
+    await act(async () => {
+      campo.value = CAPTURA;
+      campo.dispatchEvent(new Event('input'));
+    });
+    await clicar(botao('Enviar lead de teste'));
+    expect(falso.chamadas.find((c) => c.url.endsWith('/testar-envio'))?.corpo).toEqual({ url: CAPTURA });
+
+    await act(async () => {
+      (secao().querySelector('.kt-formularios .kt-interruptor input') as HTMLInputElement).click();
+    });
+    await clicar([...secao().querySelectorAll('button')].find((b) => b.textContent === 'Salvar'));
+    const put = falso.chamadas.find((c) => c.method === 'PUT' && c.url.endsWith('/v1/formularios'))!;
+    expect(put.corpo).toEqual({ capturaKentroUrl: CAPTURA, formularios: [{ id: 'f1', selecionado: true }] });
+    expect(falso.toasts).toContain('Formulários salvos.');
+
+    await clicar(botao('Reenviar'));
+    expect(falso.chamadas.at(-1)?.url).toContain('/v1/formularios/envios/l1/reenviar');
+    expect(secao().textContent).toContain('Na fila');
+  });
+});

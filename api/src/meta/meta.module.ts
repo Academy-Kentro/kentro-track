@@ -7,6 +7,8 @@ import { CapiService } from '../capi/capi.service';
 import { ContasModule } from '../contas/contas.module';
 import { EtapasController } from '../etapas/etapas.controller';
 import { EtapasService } from '../etapas/etapas.service';
+import { FormulariosController } from '../formularios/formularios.controller';
+import { FormulariosService } from '../formularios/formularios.service';
 import { AtendimentoController, KentroController } from '../leads/leads.controller';
 import { LeadsService } from '../leads/leads.service';
 import { AnalisesService } from '../painel/analises.service';
@@ -21,7 +23,7 @@ import { SincronizacaoService } from './sincronizacao/sincronizacao.service';
 
 @Module({
   imports: [ContasModule],
-  controllers: [MetaController, PainelController, MidiaController, AtendimentoController, KentroController, CapiController, EtapasController],
+  controllers: [MetaController, PainelController, MidiaController, AtendimentoController, KentroController, CapiController, EtapasController, FormulariosController],
   providers: [
     {
       provide: ClienteGraph,
@@ -54,6 +56,7 @@ import { SincronizacaoService } from './sincronizacao/sincronizacao.service';
     LeadsService,
     CapiService,
     EtapasService,
+    FormulariosService,
   ],
   exports: [ClienteGraph, ConexaoService, SincronizacaoService],
 })

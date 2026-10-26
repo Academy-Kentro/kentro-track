@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } f
 import { ConfigApp, CONFIG_APP } from '../../comum/config';
 import { CapiService } from '../../capi/capi.service';
 import { PrismaService } from '../../comum/prisma.service';
+import { FormulariosService } from '../../formularios/formularios.service';
 import { SincronizacaoService } from './sincronizacao.service';
 
 const CICLO_MS = 30_000;
@@ -20,6 +21,7 @@ export class AgendaSincronizacao implements OnApplicationBootstrap, OnModuleDest
   constructor(
     private readonly sincronizacao: SincronizacaoService,
     private readonly capi: CapiService,
+    private readonly formularios: FormulariosService,
     private readonly prisma: PrismaService,
     @Inject(CONFIG_APP) private readonly config: ConfigApp,
   ) {}
@@ -41,6 +43,9 @@ export class AgendaSincronizacao implements OnApplicationBootstrap, OnModuleDest
     try {
       // Eventos primeiro: são rápidos e o atraso aparece para o cliente (otimização das campanhas).
       await this.capi.enviarPendentes();
+      // Lead de formulário vira oportunidade na Kentro: quanto antes o atendente liga, mais converte.
+      await this.formularios.lerPendentes();
+      await this.formularios.enviarPendentes();
       for (let i = 0; i < POR_CICLO; i++) if (!(await this.sincronizacao.executarProxima())) break;
       if (Date.now() - this.ultimaLimpeza > LIMPEZA_MS) {
         this.ultimaLimpeza = Date.now();

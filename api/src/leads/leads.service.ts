@@ -33,9 +33,29 @@ export interface Autor {
   nome?: string;
 }
 
+/** Um lead de formulário (Lead Ads) como o Meta entrega, já com o texto de cada pergunta. */
+export interface LeadDeFormulario {
+  leadgenId: string;
+  formularioIdMeta: string;
+  formularioNome: string;
+  criadoEm: Date;
+  nome?: string;
+  telefone?: string;
+  email?: string;
+  respostas: { chave: string; pergunta: string; resposta: string }[];
+  anuncioIdMeta?: string;
+  conjuntoIdMeta?: string;
+  campanhaIdMeta?: string;
+}
+
 
 /** Formulário do mesmo telefone até 30 dias antes: a conversa é continuação dele, não outra entrada. */
 const JANELA_FORMULARIO_DIAS = 30;
+/**
+ * A conversa pode começar antes de o formulário ser lido (a leitura é periódica): conversa sem anúncio
+ * do mesmo telefone, aberta até este tanto antes do envio do formulário, vira o lead do formulário.
+ */
+const CONVERSA_ANTES_DO_FORMULARIO_MIN = 10;
 const MAX_TEXTO = 2000;
 
 const limpo = (v: unknown, max = 300) => {
@@ -241,6 +261,61 @@ export class LeadsService {
       if (erro instanceof Prisma.PrismaClientKnownRequestError && erro.code === 'P2002') {
         return this.prisma.lead.findUniqueOrThrow({ where: { contaId_chatId: { contaId, chatId } } });
       }
+      throw erro;
+    }
+  }
+
+  /**
+   * Grava o lead de um formulário. Devolve null se ele já tinha sido gravado (a leitura repete um
+   * trecho para não perder lead na virada). Com `paraKentro`, o lead entra na fila da captura da Kentro.
+   */
+  async registrarFormulario(contaId: string, f: LeadDeFormulario, paraKentro: boolean): Promise<Lead | null> {
+    if (await this.prisma.lead.findUnique({ where: { contaId_leadgenId: { contaId, leadgenId: f.leadgenId } } })) return null;
+    const fone = normalizarTelefone(f.telefone);
+    // O anúncio pode ainda não ter sido sincronizado: os ids ficam e os nomes aparecem depois.
+    const anuncio = f.anuncioIdMeta ? await this.prisma.anuncio.findFirst({ where: { contaId, idMeta: f.anuncioIdMeta } }) : null;
+    const campanha = !anuncio && f.campanhaIdMeta ? await this.prisma.campanha.findFirst({ where: { contaId, idMeta: f.campanhaIdMeta } }) : null;
+    const dados = {
+      origem: 'formulario' as const,
+      leadgenId: f.leadgenId,
+      formularioIdMeta: f.formularioIdMeta,
+      respostas: f.respostas as unknown as Prisma.InputJsonValue,
+      email: limpo(f.email, 200) ?? null,
+      contaAnuncioId: anuncio?.contaAnuncioId ?? campanha?.contaAnuncioId ?? null,
+      anuncioIdMeta: f.anuncioIdMeta ?? null,
+      conjuntoIdMeta: anuncio?.conjuntoIdMeta ?? f.conjuntoIdMeta ?? null,
+      campanhaIdMeta: anuncio?.campanhaIdMeta ?? f.campanhaIdMeta ?? null,
+      vinculoAnuncio: f.anuncioIdMeta ? 'id' : null,
+      ...(paraKentro ? { kentroStatus: 'pendente' as const, kentroProximaEm: new Date() } : {}),
+    };
+    const texto = `Preencheu o formulário "${f.formularioNome}".`;
+
+    const conversa = fone
+      ? await this.prisma.lead.findFirst({
+          where: {
+            contaId,
+            origem: 'organico',
+            leadgenId: null,
+            telefoneChave: fone.chave,
+            recebidoEm: { gte: new Date(f.criadoEm.getTime() - CONVERSA_ANTES_DO_FORMULARIO_MIN * 60_000) },
+          },
+          orderBy: { recebidoEm: 'asc' },
+        })
+      : null;
+    try {
+      if (conversa) {
+        const lead = await this.prisma.lead.update({ where: { id: conversa.id }, data: { ...dados, nome: conversa.nome ?? limpo(f.nome) ?? null } });
+        await this.evento(lead.id, 'formulario', `${texto} A conversa no WhatsApp passou a ser deste formulário.`, { tipo: 'sistema' });
+        return lead;
+      }
+      const lead = await this.prisma.lead.create({
+        data: { contaId, ...dados, nome: limpo(f.nome) ?? null, telefone: fone?.telefone ?? null, telefoneChave: fone?.chave ?? null, recebidoEm: f.criadoEm },
+      });
+      await this.evento(lead.id, 'recebido', texto, { tipo: 'sistema' });
+      return lead;
+    } catch (erro) {
+      // Duas leituras do mesmo formulário ao mesmo tempo: a outra gravou primeiro.
+      if (erro instanceof Prisma.PrismaClientKnownRequestError && erro.code === 'P2002') return null;
       throw erro;
     }
   }

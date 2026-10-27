@@ -302,3 +302,118 @@ export function MapaCalor({ titulo, subtitulo, celulas }: { titulo: string; subt
     </figure>
   );
 }
+
+const NOMES_UF: Record<string, string> = {
+  AC: 'Acre', AL: 'Alagoas', AM: 'Amazonas', AP: 'Amapá', BA: 'Bahia', CE: 'Ceará', DF: 'Distrito Federal', ES: 'Espírito Santo', GO: 'Goiás',
+  MA: 'Maranhão', MG: 'Minas Gerais', MS: 'Mato Grosso do Sul', MT: 'Mato Grosso', PA: 'Pará', PB: 'Paraíba', PE: 'Pernambuco', PI: 'Piauí',
+  PR: 'Paraná', RJ: 'Rio de Janeiro', RN: 'Rio Grande do Norte', RO: 'Rondônia', RR: 'Roraima', RS: 'Rio Grande do Sul', SC: 'Santa Catarina',
+  SE: 'Sergipe', SP: 'São Paulo', TO: 'Tocantins',
+};
+
+/** Cada estado numa casa da grade [coluna, linha], na posição aproximada do mapa (estados pequenos ficam do tamanho dos grandes). */
+const GRADE_UF: [string, number, number][] = [
+  ['RR', 1, 0], ['AP', 3, 0],
+  ['AM', 1, 1], ['PA', 2, 1], ['MA', 3, 1], ['CE', 4, 1], ['RN', 5, 1],
+  ['AC', 0, 2], ['RO', 1, 2], ['TO', 2, 2], ['PI', 3, 2], ['PE', 4, 2], ['PB', 5, 2],
+  ['MT', 1, 3], ['GO', 2, 3], ['BA', 3, 3], ['SE', 4, 3], ['AL', 5, 3],
+  ['MS', 1, 4], ['DF', 2, 4], ['MG', 3, 4], ['ES', 4, 4],
+  ['PR', 1, 5], ['SP', 2, 5], ['RJ', 3, 5],
+  ['SC', 1, 6],
+  ['RS', 1, 7],
+];
+
+export interface LeadsUf {
+  uf: string;
+  leads: number;
+  vendas: number;
+}
+
+export interface LeadsDdd extends LeadsUf {
+  ddd: string;
+  cidade: string | null;
+}
+
+/**
+ * Mapa de calor do Brasil por estado (o estado sai do DDD do telefone), nos mesmos 5 degraus do mapa
+ * de horários. Hover ou foco num estado mostra o detalhe dele e os DDDs que mais trouxeram leads;
+ * sem nada em foco, o detalhe é o do estado com mais leads.
+ */
+export function MapaBrasil({ titulo, subtitulo, estados, ddds }: { titulo: string; subtitulo?: string; estados: LeadsUf[]; ddds: LeadsDdd[] }) {
+  const [ativo, setAtivo] = useState<string | null>(null);
+  const porUf = new Map(estados.map((e) => [e.uf, e]));
+  const maximo = Math.max(1, ...estados.map((e) => e.leads));
+  const degrau = (v: number) => (v <= 0 ? 0 : Math.min(5, Math.ceil((v / maximo) * 5)));
+  const total = estados.reduce((a, e) => a + e.leads, 0);
+  const foco = ativo ?? estados[0]?.uf ?? null;
+  const atual = foco ? porUf.get(foco) ?? { uf: foco, leads: 0, vendas: 0 } : null;
+  const dddsDoFoco = ddds.filter((d) => d.uf === foco).slice(0, 4);
+  const leads = (n: number) => `${n} ${n === 1 ? 'lead' : 'leads'}`;
+
+  return (
+    <figure class="kt-grafico kt-mapa">
+      <figcaption class="kt-grafico-topo">
+        <div>
+          <h3>{titulo}</h3>
+          {subtitulo && <p class="kt-muted">{subtitulo}</p>}
+        </div>
+      </figcaption>
+      {total === 0 ? (
+        <p class="kt-muted kt-barras-vazio">Nenhum lead com DDD brasileiro no período.</p>
+      ) : (
+        <>
+          <div class="kt-mapa-corpo">
+            <div class="kt-mapa-grade" onPointerLeave={() => setAtivo(null)}>
+              {GRADE_UF.map(([uf, coluna, linha]) => {
+                const v = porUf.get(uf)?.leads ?? 0;
+                const d = degrau(v);
+                return (
+                  <span
+                    key={uf}
+                    class={`kt-mapa-uf kt-calor-${d}${d >= 4 ? ' kt-mapa-uf-escuro' : ''}${foco === uf ? ' kt-mapa-uf-ativo' : ''}`}
+                    style={{ gridColumn: coluna + 1, gridRow: linha + 1 }}
+                    tabIndex={0}
+                    aria-label={`${NOMES_UF[uf]}: ${leads(v)}`}
+                    onPointerEnter={() => setAtivo(uf)}
+                    onFocus={() => setAtivo(uf)}
+                    onBlur={() => setAtivo(null)}
+                  >
+                    <strong>{uf}</strong>
+                    {v > 0 && <small>{v}</small>}
+                  </span>
+                );
+              })}
+            </div>
+            {atual && (
+              <div class="kt-mapa-detalhe" aria-live="polite">
+                <span class="kt-mapa-detalhe-nome">{NOMES_UF[atual.uf] ?? atual.uf}</span>
+                <strong class="kt-mapa-detalhe-valor">{leads(atual.leads)}</strong>
+                <span class="kt-muted">
+                  {Math.round((atual.leads / total) * 100)}% do total · {atual.vendas} {atual.vendas === 1 ? 'venda' : 'vendas'}
+                  {atual.leads ? ` (${Math.round((atual.vendas / atual.leads) * 100)}%)` : ''}
+                </span>
+                {dddsDoFoco.length > 0 && (
+                  <ul class="kt-mapa-ddds">
+                    {dddsDoFoco.map((d) => (
+                      <li key={d.ddd}>
+                        <span class="kt-mapa-ddd">{d.ddd}</span>
+                        <span class="kt-mapa-cidade">{d.cidade ?? NOMES_UF[d.uf]}</span>
+                        <span class="kt-mapa-ddd-valor">{d.leads}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
+          <div class="kt-calor-legenda" aria-hidden="true">
+            <span>Menos</span>
+            {[0, 1, 2, 3, 4, 5].map((n) => (
+              <span key={n} class={`kt-calor-celula kt-calor-${n}`} />
+            ))}
+            <span>Mais (até {maximo})</span>
+          </div>
+        </>
+      )}
+    </figure>
+  );
+}

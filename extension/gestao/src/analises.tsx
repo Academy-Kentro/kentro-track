@@ -3,7 +3,7 @@ import { Aviso, Carregando } from '../../comum/componentes';
 import { compacto, dinheiro, dinheiroCompacto, inteiro, percentual, vezes } from '../../comum/formato';
 import { Icone, NomeIcone } from '../../comum/icones';
 import type { Carga } from './filtro';
-import { BarrasHorizontais, GraficoColunas, MapaCalor } from './graficos';
+import { BarrasHorizontais, GraficoColunas, LeadsDdd, LeadsUf, MapaBrasil, MapaCalor } from './graficos';
 
 type Etapa = 'novo' | 'em_atendimento' | 'qualificado' | 'venda' | 'descartado';
 
@@ -25,7 +25,7 @@ export interface DadosAnalises {
   porDia: { data: string; entradas: number; vendas: number; receita: number }[];
   etapas: Partial<Record<Etapa, number>>;
   motivosDescarte: { motivo: string; leads: number }[];
-  estados: { itens: { uf: string; leads: number; vendas: number }[]; semEstado: number };
+  estados: { itens: LeadsUf[]; ddds: LeadsDdd[]; semEstado: number };
   horario: { diaSemana: number; hora: number; leads: number }[];
   tempoAtendimento: { faixas: { id: string; rotulo: string; leads: number }[]; naoAtendidos: number };
   ranking: { campanhas: ItemRanking[]; conjuntos: ItemRanking[]; anuncios: ItemRanking[] };
@@ -156,7 +156,7 @@ export function Analises({ carga }: { carga: Carga<DadosAnalises> }) {
         />
       </Bloco>
 
-      <Bloco icone="alvo" titulo="Jornada e gargalos" descricao="Em que etapa estão os leads do período e por que os perdidos foram perdidos" colunas={2}>
+      <Bloco icone="alvo" titulo="Jornada e gargalos" descricao="Em que etapa estão os leads do período, por que os perdidos foram perdidos e quanto demoram a ser atendidos">
         <BarrasHorizontais
           titulo="Etapa atual dos leads"
           barras={ETAPAS.map((e) => ({ rotulo: e.rotulo, valor: dados.etapas[e.id] ?? 0 }))}
@@ -168,16 +168,6 @@ export function Analises({ carga }: { carga: Carga<DadosAnalises> }) {
           formatar={inteiro}
           vazio="Nenhum lead descartado no período."
         />
-      </Bloco>
-
-      <Bloco icone="relogio" titulo="Quando e onde" descricao="Horário de chegada (no fuso da conta), velocidade do atendimento e estado pelo DDD" colunas={2}>
-        <MapaCalor titulo="Chegada de leads por dia e hora" subtitulo="Bom para escalar a equipe nos horários de pico" celulas={dados.horario} />
-        <BarrasHorizontais
-          titulo="Leads por estado"
-          subtitulo={dados.estados.semEstado ? `${plural(dados.estados.semEstado, 'lead', 'leads')} sem DDD brasileiro identificado` : 'Pelo DDD do telefone'}
-          barras={dados.estados.itens.slice(0, 10).map((e) => ({ rotulo: e.uf, valor: e.leads, detalhe: plural(e.vendas, 'venda', 'vendas') }))}
-          formatar={inteiro}
-        />
         <BarrasHorizontais
           titulo="Tempo até o atendimento"
           subtitulo="Do lead chegar até alguém abrir o painel da conversa"
@@ -186,6 +176,27 @@ export function Analises({ carga }: { carga: Carga<DadosAnalises> }) {
             { rotulo: 'Ainda não atendidos', valor: dados.tempoAtendimento.naoAtendidos },
           ]}
           formatar={inteiro}
+        />
+      </Bloco>
+
+      <Bloco icone="relogio" titulo="Quando e onde" descricao="Horário de chegada (no fuso da conta) e de onde vêm os leads, pelo DDD do telefone" colunas={2}>
+        <MapaCalor titulo="Chegada de leads por dia e hora" subtitulo="Bom para escalar a equipe nos horários de pico" celulas={dados.horario} />
+        <MapaBrasil
+          titulo="Leads por estado"
+          subtitulo={dados.estados.semEstado ? `Pelo DDD · ${plural(dados.estados.semEstado, 'lead', 'leads')} sem DDD brasileiro identificado` : 'Pelo DDD do telefone'}
+          estados={dados.estados.itens}
+          ddds={dados.estados.ddds}
+        />
+        <BarrasHorizontais
+          titulo="Leads por DDD"
+          subtitulo="As 10 regiões que mais trazem leads"
+          barras={dados.estados.ddds.slice(0, 10).map((d) => ({
+            rotulo: `${d.ddd} · ${d.cidade ?? d.uf}`,
+            valor: d.leads,
+            detalhe: `${d.cidade ? `${d.cidade} e região (${d.uf})` : d.uf} · ${plural(d.vendas, 'venda', 'vendas')}`,
+          }))}
+          formatar={inteiro}
+          vazio="Nenhum lead com DDD brasileiro no período."
         />
       </Bloco>
     </div>

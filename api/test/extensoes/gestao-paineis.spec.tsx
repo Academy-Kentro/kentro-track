@@ -649,7 +649,15 @@ describe('gestão: aba Análises', () => {
     ],
     etapas: { novo: 2, venda: 2, descartado: 1 },
     motivosDescarte: [{ motivo: 'Sem orçamento', leads: 1 }],
-    estados: { itens: [{ uf: 'SP', leads: 6, vendas: 2 }, { uf: 'MG', leads: 3, vendas: 0 }], semEstado: 1 },
+    estados: {
+      itens: [{ uf: 'SP', leads: 6, vendas: 2 }, { uf: 'MG', leads: 3, vendas: 0 }],
+      ddds: [
+        { ddd: '11', cidade: 'São Paulo', uf: 'SP', leads: 4, vendas: 2 },
+        { ddd: '38', cidade: 'Montes Claros', uf: 'MG', leads: 3, vendas: 0 },
+        { ddd: '19', cidade: 'Campinas', uf: 'SP', leads: 2, vendas: 0 },
+      ],
+      semEstado: 1,
+    },
     horario: [{ diaSemana: 1, hora: 14, leads: 5 }],
     tempoAtendimento: { faixas: [{ id: 'ate5', rotulo: 'Até 5 min', leads: 3 }, { id: 'mais', rotulo: 'Mais de 4 h', leads: 1 }], naoAtendidos: 6 },
     ranking: { campanhas: [item('Black Friday', 2, 3000)], conjuntos: [item('Quente', 2, 3000)], anuncios: [] },
@@ -672,9 +680,10 @@ describe('gestão: aba Análises', () => {
       'Criativos que mais vendem',
       'Etapa atual dos leads',
       'Motivos de descarte',
+      'Tempo até o atendimento',
       'Chegada de leads por dia e hora',
       'Leads por estado',
-      'Tempo até o atendimento',
+      'Leads por DDD',
     ]);
     // Barras com rótulo e valor; anúncio sem venda mostra o vazio, não um gráfico zerado.
     const origens = [...raiz.querySelectorAll('.kt-barras')][0];
@@ -688,6 +697,26 @@ describe('gestão: aba Análises', () => {
     const celulas = raiz.querySelectorAll('.kt-calor-grade .kt-calor-celula');
     expect(celulas).toHaveLength(168);
     expect(celulas[14].className).toContain('kt-calor-5');
+    // Mapa do Brasil: os 27 estados; SP (o maior) no degrau mais alto e em destaque, com os DDDs dele.
+    const ufs = [...raiz.querySelectorAll('.kt-mapa-uf')];
+    expect(ufs).toHaveLength(27);
+    const uf = (sigla: string) => ufs.find((e) => e.querySelector('strong')!.textContent === sigla)!;
+    expect(uf('SP').className).toContain('kt-calor-5');
+    expect(uf('MG').className).toContain('kt-calor-3');
+    expect(uf('BA').className).toContain('kt-calor-0');
+    const detalhe = () => raiz.querySelector('.kt-mapa-detalhe')!.textContent;
+    expect(detalhe()).toContain('São Paulo');
+    expect(detalhe()).toContain('6 leads');
+    expect([...raiz.querySelectorAll('.kt-mapa-ddds li')].map((li) => li.textContent)).toEqual(['11São Paulo4', '19Campinas2']);
+    // Foco do teclado num estado troca o detalhe.
+    await act(async () => {
+      uf('MG').dispatchEvent(new FocusEvent('focus'));
+    });
+    expect(detalhe()).toContain('Minas Gerais');
+    expect(detalhe()).toContain('38Montes Claros3');
+    // Ranking por DDD com a cidade da região.
+    const porDdd = [...raiz.querySelectorAll('.kt-barras')].at(-1)!;
+    expect([...porDdd.querySelectorAll('.kt-barra-rotulo')].map((e) => e.textContent)).toEqual(['11 · São Paulo', '38 · Montes Claros', '19 · Campinas']);
   });
 
   it('dica da barra mostra o detalhe no foco do teclado', async () => {

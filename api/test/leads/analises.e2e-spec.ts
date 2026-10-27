@@ -100,6 +100,11 @@ describe('aba Análises', () => {
       { uf: 'SP', leads: 1, vendas: 1 },
       { uf: 'RJ', leads: 1, vendas: 0 },
     ]);
+    expect(body.estados.ddds).toEqual([
+      { ddd: '38', cidade: 'Montes Claros', uf: 'MG', leads: 2, vendas: 1 },
+      { ddd: '11', cidade: 'São Paulo', uf: 'SP', leads: 1, vendas: 1 },
+      { ddd: '21', cidade: 'Rio de Janeiro', uf: 'RJ', leads: 1, vendas: 0 },
+    ]);
   });
 
   it('hora de chegada no fuso da conta (segunda = 1) e tempo até atender por faixa', async () => {

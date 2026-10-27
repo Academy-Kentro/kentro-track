@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { cadaDia, comoDia } from '../comum/datas';
 import { PrismaService } from '../comum/prisma.service';
-import { ufDoDdd } from '../leads/ddd';
+import { cidadeDoDdd, ufDoDdd } from '../leads/ddd';
 import { Filtro, PainelService } from './painel.service';
 
 const num = (v: unknown) => {
@@ -81,6 +81,7 @@ export class AnalisesService {
     const mapaVendas = new Map(vendasPorDia.map((l) => [comoDia(l.dia), { vendas: num(l.n), receita: dinheiro(num(l.receita)) }]));
 
     const porUf = new Map<string, { leads: number; vendas: number }>();
+    const porDdd: { ddd: string; cidade: string | null; uf: string; leads: number; vendas: number }[] = [];
     let semEstado = 0;
     for (const d of ddds) {
       const uf = ufDoDdd(d.ddd);
@@ -90,6 +91,7 @@ export class AnalisesService {
       }
       const atual = porUf.get(uf) ?? { leads: 0, vendas: 0 };
       porUf.set(uf, { leads: atual.leads + num(d.leads), vendas: atual.vendas + num(d.vendas) });
+      porDdd.push({ ddd: d.ddd, cidade: cidadeDoDdd(d.ddd), uf, leads: num(d.leads), vendas: num(d.vendas) });
     }
 
     const faixas = FAIXAS_ATENDIMENTO.map((f) => ({ id: f.id, rotulo: f.rotulo, leads: 0 }));
@@ -114,6 +116,7 @@ export class AnalisesService {
       motivosDescarte: motivos.map((m) => ({ motivo: m.motivo, leads: num(m.n) })),
       estados: {
         itens: [...porUf.entries()].map(([uf, v]) => ({ uf, ...v })).sort((a, b) => b.leads - a.leads),
+        ddds: porDdd.sort((a, b) => b.leads - a.leads || a.ddd.localeCompare(b.ddd)),
         semEstado,
       },
       horario: horario.map((h) => ({ diaSemana: num(h.dia_semana), hora: num(h.hora), leads: num(h.n) })),

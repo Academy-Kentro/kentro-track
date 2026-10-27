@@ -23,7 +23,8 @@ const ESPERAS_MIN = [1, 5, 30, 120, 720];
 /** A leitura volta um pouco no tempo: o lead criado no mesmo segundo da leitura anterior não se perde. */
 const SOBREPOSICAO_S = 120;
 
-export const PERMISSOES_FORMULARIO = ['leads_retrieval', 'pages_show_list', 'pages_read_engagement', 'pages_manage_metadata'];
+/** O que o Meta exige para ler formulários e leads (Lead Ads › Retrieving): token de quem anuncia na página. */
+export const PERMISSOES_FORMULARIO = ['leads_retrieval', 'pages_show_list', 'pages_read_engagement', 'pages_manage_ads', 'ads_management'];
 
 /** Só o endereço de uma captura de webhook da Kentro: a API não faz POST para qualquer lugar. */
 const CAPTURA_KENTRO = /^https:\/\/[a-z0-9.-]+(:\d+)?\/webhookcapture\/capture\/[A-Za-z0-9._~-]+$/i;
@@ -83,6 +84,7 @@ export class FormulariosService {
         nome: l.nome,
         telefone: mascararTelefone(l.telefone),
         formulario: (l.formularioIdMeta && nomes.get(l.formularioIdMeta)) ?? null,
+        formularioId: l.formularioIdMeta,
         recebidoEm: l.recebidoEm,
         status: l.kentroStatus,
         tentativas: l.kentroTentativas,
@@ -120,7 +122,12 @@ export class FormulariosService {
       } catch (e) {
         if (!(e instanceof ErroMeta)) throw e;
         this.logger.warn(`Formulários da página ${p.id} (conta ${contaId}): ${e.codigo} ${e.message}`);
-        avisos.push(`Página "${nomePagina}": ${e instanceof PermissaoFaltando ? 'falta a permissão leads_retrieval no token' : e.message}`);
+        // A mensagem do Meta diz qual permissão ou tarefa na página falta: vai como veio.
+        avisos.push(
+          e instanceof PermissaoFaltando
+            ? `Página "${nomePagina}": o Meta recusou a leitura dos formulários (${e.message}). O token precisa de ${PERMISSOES_FORMULARIO.join(', ')} e o usuário do sistema, de acesso para anunciar na página.`
+            : `Página "${nomePagina}": ${e.message}`,
+        );
         continue;
       }
       const { cifrado, iv } = cifrar(p.access_token, this.config.chaveMestra);
@@ -245,7 +252,7 @@ export class FormulariosService {
         e instanceof TokenInvalido
           ? 'O Meta recusou o token da página. Clique em "Buscar formulários" para renovar.'
           : e instanceof PermissaoFaltando
-            ? `Sem permissão para ler os leads (leads_retrieval): ${e.message}`
+            ? `Sem permissão para ler os leads: ${e.message}`
             : e.message;
       this.logger.warn(`Leitura do formulário ${f.idMeta} (conta ${f.contaId}): ${e.codigo} ${e.message}`);
       // O Meta entrega do mais novo para o mais antigo: parar no meio deixa leads mais antigos sem ler.

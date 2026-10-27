@@ -174,6 +174,14 @@ describe('formulários do Meta → CRM da Kentro', () => {
     expect(lista.formularios[0]).toMatchObject({ nome: 'Orçamento', selecionado: true });
   });
 
+  it('permissão recusada pelo Meta: o aviso traz a mensagem dele (diz o que falta)', async () => {
+    meta.get('pag1/leadgen_forms', erroMeta(200, '(#200) Requires pages_manage_ads permission to manage the object'));
+    const busca = await admin(http().post('/v1/formularios/buscar'));
+    expect(busca.body.avisos).toContainEqual(expect.stringContaining('Requires pages_manage_ads permission'));
+    expect(busca.body.avisos).toContainEqual(expect.stringContaining('ads_management'));
+    expect(busca.body.formularios).toEqual([]);
+  });
+
   it('recusa endereço que não é de captura da Kentro', async () => {
     const res = await admin(http().put('/v1/formularios')).send({ capturaKentroUrl: 'http://169.254.169.254/latest' });
     expect(res.body.erro.codigo).toBe('CAPTURA_INVALIDA');

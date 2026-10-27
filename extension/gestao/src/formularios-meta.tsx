@@ -22,6 +22,7 @@ interface Envio {
   nome: string | null;
   telefone: string | null;
   formulario: string | null;
+  formularioId: string | null;
   recebidoEm: string;
   status: 'pendente' | 'enviado' | 'erro' | 'descartado';
   tentativas: number;
@@ -161,7 +162,7 @@ export function FormulariosMeta({ api }: { api: Api }) {
                     {f.status && f.status !== 'ACTIVE' && <span class="kt-selo kt-selo-neutro">{f.status === 'ARCHIVED' ? 'Arquivado' : f.status}</span>}
                   </Interruptor>
                   <p class="kt-muted">
-                    {f.perguntas.length} pergunta{f.perguntas.length === 1 ? '' : 's'} · {f.leads30Dias} lead{f.leads30Dias === 1 ? '' : 's'} em 30 dias
+                    <span class="kt-id-meta" title="ID do formulário no Meta">ID {f.idMeta}</span> · {f.perguntas.length} pergunta{f.perguntas.length === 1 ? '' : 's'} · {f.leads30Dias} lead{f.leads30Dias === 1 ? '' : 's'} em 30 dias
                     {f.selecionado && f.ultimaLeituraEm && ` · lido às ${new Date(f.ultimaLeituraEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`}
                   </p>
                   {f.selecionado && f.ultimoErro && <p class="kt-erro-texto">{f.ultimoErro}</p>}
@@ -204,7 +205,10 @@ export function FormulariosMeta({ api }: { api: Api }) {
                       {e.nome ?? '—'}
                       {e.telefone && <div class="kt-muted">{e.telefone}</div>}
                     </td>
-                    <td>{e.formulario ?? '—'}</td>
+                    <td>
+                      {e.formulario ?? '—'}
+                      {e.formularioId && <div class="kt-muted kt-id-meta">ID {e.formularioId}</div>}
+                    </td>
                     <td class="kt-celula-quebra">
                       <span class={`kt-selo ${e.status === 'enviado' ? 'kt-selo-ok' : e.status === 'erro' ? 'kt-selo-erro' : 'kt-selo-neutro'}`}>
                         <span class="kt-ponto" />

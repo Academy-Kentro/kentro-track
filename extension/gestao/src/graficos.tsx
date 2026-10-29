@@ -1,6 +1,15 @@
+import { MapChart } from 'echarts/charts';
+import { TooltipComponent, VisualMapComponent, AriaComponent } from 'echarts/components';
+import { init, registerMap, use, type EChartsType } from 'echarts/core';
+import { SVGRenderer } from 'echarts/renderers';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { diaCurto, diaLongo } from '../../comum/formato';
 import { Icone } from '../../comum/icones';
+import { MAPA_BRASIL } from './mapa-brasil';
+
+// Só o que o mapa do Brasil usa: o resto do ECharts fica fora do pacote.
+use([MapChart, TooltipComponent, VisualMapComponent, AriaComponent, SVGRenderer]);
+registerMap('BR', MAPA_BRASIL as unknown as Parameters<typeof registerMap>[1]);
 
 export interface Ponto {
   dia: string;
@@ -310,18 +319,6 @@ const NOMES_UF: Record<string, string> = {
   SE: 'Sergipe', SP: 'São Paulo', TO: 'Tocantins',
 };
 
-/** Cada estado numa casa da grade [coluna, linha], na posição aproximada do mapa (estados pequenos ficam do tamanho dos grandes). */
-const GRADE_UF: [string, number, number][] = [
-  ['RR', 1, 0], ['AP', 3, 0],
-  ['AM', 1, 1], ['PA', 2, 1], ['MA', 3, 1], ['CE', 4, 1], ['RN', 5, 1],
-  ['AC', 0, 2], ['RO', 1, 2], ['TO', 2, 2], ['PI', 3, 2], ['PE', 4, 2], ['PB', 5, 2],
-  ['MT', 1, 3], ['GO', 2, 3], ['BA', 3, 3], ['SE', 4, 3], ['AL', 5, 3],
-  ['MS', 1, 4], ['DF', 2, 4], ['MG', 3, 4], ['ES', 4, 4],
-  ['PR', 1, 5], ['SP', 2, 5], ['RJ', 3, 5],
-  ['SC', 1, 6],
-  ['RS', 1, 7],
-];
-
 export interface LeadsUf {
   uf: string;
   leads: number;
@@ -333,21 +330,121 @@ export interface LeadsDdd extends LeadsUf {
   cidade: string | null;
 }
 
+type Rgb = [number, number, number];
+
+/** Resolve uma cor do tema (variável CSS, color-mix…) para RGB: o ECharts desenha em SVG e não lê variáveis CSS. */
+function corDoTema(el: HTMLElement, valor: string, padrao: Rgb): Rgb {
+  const sonda = document.createElement('span');
+  sonda.style.color = valor;
+  el.appendChild(sonda);
+  const cor = getComputedStyle(sonda).color;
+  sonda.remove();
+  const n = cor.match(/[\d.]+/g)?.map(Number);
+  if (!n || n.length < 3) return padrao;
+  // "color(srgb 0.4 0.2 0.8)" vem de 0 a 1; "rgb(102, 51, 204)", de 0 a 255.
+  return (cor.startsWith('color(') ? n.slice(0, 3).map((v) => Math.round(v * 255)) : n.slice(0, 3)) as Rgb;
+}
+const rgb = (c: Rgb) => `rgb(${c.join(',')})`;
+const misturar = (cor: Rgb, fundo: Rgb, peso: number) => rgb(cor.map((v, i) => Math.round(v * peso + fundo[i] * (1 - peso))) as Rgb);
+
 /**
- * Mapa de calor do Brasil por estado (o estado sai do DDD do telefone), nos mesmos 5 degraus do mapa
- * de horários. Hover ou foco num estado mostra o detalhe dele e os DDDs que mais trouxeram leads;
- * sem nada em foco, o detalhe é o do estado com mais leads.
+ * Mapa de calor do Brasil por estado (o estado sai do DDD do telefone), com o contorno real dos estados
+ * (malha do IBGE) desenhado pelo ECharts. A cor vai do tom claro (1 lead) ao primário (o estado com mais
+ * leads); estado sem lead fica cinza. Passar o mouse num estado mostra o detalhe dele e os DDDs que mais
+ * trouxeram leads; sem nada em foco, o detalhe é o do estado com mais leads.
  */
 export function MapaBrasil({ titulo, subtitulo, estados, ddds }: { titulo: string; subtitulo?: string; estados: LeadsUf[]; ddds: LeadsDdd[] }) {
   const [ativo, setAtivo] = useState<string | null>(null);
+  const caixa = useRef<HTMLDivElement>(null);
+  const grafico = useRef<EChartsType | null>(null);
   const porUf = new Map(estados.map((e) => [e.uf, e]));
   const maximo = Math.max(1, ...estados.map((e) => e.leads));
-  const degrau = (v: number) => (v <= 0 ? 0 : Math.min(5, Math.ceil((v / maximo) * 5)));
   const total = estados.reduce((a, e) => a + e.leads, 0);
   const foco = ativo ?? estados[0]?.uf ?? null;
   const atual = foco ? porUf.get(foco) ?? { uf: foco, leads: 0, vendas: 0 } : null;
   const dddsDoFoco = ddds.filter((d) => d.uf === foco).slice(0, 4);
   const leads = (n: number) => `${n} ${n === 1 ? 'lead' : 'leads'}`;
+
+  // Cria o gráfico uma vez (quando há dado para mostrar) e acompanha o tamanho do cartão.
+  useEffect(() => {
+    const el = caixa.current;
+    if (!el) return;
+    const g = init(el, undefined, { renderer: 'svg' });
+    grafico.current = g;
+    g.on('mouseover', (p) => setAtivo(String(p.name)));
+    g.on('globalout', () => setAtivo(null));
+    const ajustar = () => g.resize();
+    const observador = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(ajustar);
+    observador?.observe(el);
+    return () => {
+      observador?.disconnect();
+      g.dispose();
+      grafico.current = null;
+    };
+  }, [total === 0]);
+
+  useEffect(() => {
+    const el = caixa.current;
+    if (!el || !grafico.current) return;
+    const primaria = corDoTema(el, 'var(--ext-color-primary)', [91, 33, 182]);
+    const fundo = corDoTema(el, 'var(--ext-color-bg)', [255, 255, 255]);
+    const texto = rgb(corDoTema(el, 'var(--ext-color-text)', [17, 24, 39]));
+    const apagado = rgb(corDoTema(el, 'var(--ext-color-text-muted)', [107, 114, 128]));
+    const vazio = rgb(corDoTema(el, 'var(--kt-superficie-2)', [241, 241, 244]));
+    const linha = rgb(corDoTema(el, 'var(--kt-linha)', [229, 231, 235]));
+    const nome = (uf: string) => NOMES_UF[uf] ?? uf;
+    grafico.current.setOption(
+      {
+        aria: {
+          enabled: true,
+          label: { description: `Mapa do Brasil com os leads por estado: ${estados.map((e) => `${nome(e.uf)} ${leads(e.leads)}`).join(', ')}.` },
+        },
+        tooltip: {
+          trigger: 'item',
+          backgroundColor: rgb(fundo),
+          borderColor: linha,
+          textStyle: { color: texto, fontSize: 12 },
+          formatter: (p: { name: string }) => `<strong>${nome(p.name)}</strong><br/>${leads(porUf.get(p.name)?.leads ?? 0)}`,
+        },
+        visualMap: {
+          type: 'continuous',
+          // Escala logarítmica: com um estado muito à frente (ex.: 122 × 3), a linear deixava quem tem
+          // poucos leads quase da cor de quem não tem nenhum.
+          min: 0,
+          max: Math.log(Math.max(2, maximo)),
+          inRange: { color: [misturar(primaria, fundo, 0.25), rgb(primaria)] },
+          text: [`${maximo}`, '1'],
+          textStyle: { color: apagado, fontSize: 11 },
+          orient: 'horizontal',
+          left: 0,
+          bottom: 0,
+          itemWidth: 10,
+          itemHeight: 110,
+          calculable: false,
+          realtime: false,
+        },
+        series: [
+          {
+            type: 'map',
+            map: 'BR',
+            roam: false,
+            selectedMode: false,
+            top: 4,
+            bottom: 28,
+            // Estado sem lead vai sem valor: o visualMap o ignora e ele fica com esta cor (cinza), sem parecer "pouco".
+            itemStyle: { areaColor: vazio, borderColor: rgb(fundo), borderWidth: 0.8 },
+            // areaColor/color nulos mantêm a cor do estado no hover; só a borda destaca.
+            emphasis: { label: { show: true, color: texto, fontWeight: 'bold' }, itemStyle: { areaColor: null, color: null, borderColor: texto, borderWidth: 1.5 } },
+            data: Object.keys(NOMES_UF).map((uf) => {
+              const n = porUf.get(uf)?.leads ?? 0;
+              return { name: uf, value: n > 0 ? Math.log(n) : null };
+            }),
+          },
+        ],
+      } as Parameters<EChartsType['setOption']>[0],
+      true,
+    );
+  }, [estados, maximo, total]);
 
   return (
     <figure class="kt-grafico kt-mapa">
@@ -360,59 +457,30 @@ export function MapaBrasil({ titulo, subtitulo, estados, ddds }: { titulo: strin
       {total === 0 ? (
         <p class="kt-muted kt-barras-vazio">Nenhum lead com DDD brasileiro no período.</p>
       ) : (
-        <>
-          <div class="kt-mapa-corpo">
-            <div class="kt-mapa-grade" onPointerLeave={() => setAtivo(null)}>
-              {GRADE_UF.map(([uf, coluna, linha]) => {
-                const v = porUf.get(uf)?.leads ?? 0;
-                const d = degrau(v);
-                return (
-                  <span
-                    key={uf}
-                    class={`kt-mapa-uf kt-calor-${d}${d >= 4 ? ' kt-mapa-uf-escuro' : ''}${foco === uf ? ' kt-mapa-uf-ativo' : ''}`}
-                    style={{ gridColumn: coluna + 1, gridRow: linha + 1 }}
-                    tabIndex={0}
-                    aria-label={`${NOMES_UF[uf]}: ${leads(v)}`}
-                    onPointerEnter={() => setAtivo(uf)}
-                    onFocus={() => setAtivo(uf)}
-                    onBlur={() => setAtivo(null)}
-                  >
-                    <strong>{uf}</strong>
-                    {v > 0 && <small>{v}</small>}
-                  </span>
-                );
-              })}
+        <div class="kt-mapa-corpo">
+          <div class="kt-mapa-desenho" ref={caixa} />
+          {atual && (
+            <div class="kt-mapa-detalhe" aria-live="polite">
+              <span class="kt-mapa-detalhe-nome">{NOMES_UF[atual.uf] ?? atual.uf}</span>
+              <strong class="kt-mapa-detalhe-valor">{leads(atual.leads)}</strong>
+              <span class="kt-muted">
+                {Math.round((atual.leads / total) * 100)}% do total · {atual.vendas} {atual.vendas === 1 ? 'venda' : 'vendas'}
+                {atual.leads ? ` (${Math.round((atual.vendas / atual.leads) * 100)}%)` : ''}
+              </span>
+              {dddsDoFoco.length > 0 && (
+                <ul class="kt-mapa-ddds">
+                  {dddsDoFoco.map((d) => (
+                    <li key={d.ddd}>
+                      <span class="kt-mapa-ddd">{d.ddd}</span>
+                      <span class="kt-mapa-cidade">{d.cidade ?? NOMES_UF[d.uf]}</span>
+                      <span class="kt-mapa-ddd-valor">{d.leads}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
-            {atual && (
-              <div class="kt-mapa-detalhe" aria-live="polite">
-                <span class="kt-mapa-detalhe-nome">{NOMES_UF[atual.uf] ?? atual.uf}</span>
-                <strong class="kt-mapa-detalhe-valor">{leads(atual.leads)}</strong>
-                <span class="kt-muted">
-                  {Math.round((atual.leads / total) * 100)}% do total · {atual.vendas} {atual.vendas === 1 ? 'venda' : 'vendas'}
-                  {atual.leads ? ` (${Math.round((atual.vendas / atual.leads) * 100)}%)` : ''}
-                </span>
-                {dddsDoFoco.length > 0 && (
-                  <ul class="kt-mapa-ddds">
-                    {dddsDoFoco.map((d) => (
-                      <li key={d.ddd}>
-                        <span class="kt-mapa-ddd">{d.ddd}</span>
-                        <span class="kt-mapa-cidade">{d.cidade ?? NOMES_UF[d.uf]}</span>
-                        <span class="kt-mapa-ddd-valor">{d.leads}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
-          </div>
-          <div class="kt-calor-legenda" aria-hidden="true">
-            <span>Menos</span>
-            {[0, 1, 2, 3, 4, 5].map((n) => (
-              <span key={n} class={`kt-calor-celula kt-calor-${n}`} />
-            ))}
-            <span>Mais (até {maximo})</span>
-          </div>
-        </>
+          )}
+        </div>
       )}
     </figure>
   );

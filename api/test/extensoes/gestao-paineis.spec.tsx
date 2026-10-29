@@ -12,6 +12,22 @@ import { datasPersonalizadas, intervalo, periodo, primeiroDia } from '../../../e
 import { tetoRedondo } from '../../../extension/gestao/src/graficos';
 import { assentar, ChamadaHttp, erro, ok, omniFalso, OpcoesFalso } from './omni-falso';
 
+// O jsdom não desenha: o ECharts vira um falso que guarda a última opção e os ouvintes de evento.
+const mockMapa = { opcao: null as any, eventos: {} as Record<string, (p: { name?: string }) => void> };
+jest.mock('echarts/core', () => ({
+  use: () => undefined,
+  registerMap: () => undefined,
+  init: () => ({
+    on: (evento: string, fn: (p: { name?: string }) => void) => (mockMapa.eventos[evento] = fn),
+    setOption: (opcao: unknown) => (mockMapa.opcao = opcao),
+    resize: () => undefined,
+    dispose: () => undefined,
+  }),
+}));
+jest.mock('echarts/charts', () => ({ MapChart: {} }));
+jest.mock('echarts/components', () => ({ TooltipComponent: {}, VisualMapComponent: {}, AriaComponent: {} }));
+jest.mock('echarts/renderers', () => ({ SVGRenderer: {} }));
+
 const CONTA = { id: 'c1', nome: 'Empresa X', status: 'ativa', plano: 'gratis', fuso: 'America/Sao_Paulo', moeda: 'BRL', papel: 'admin', loginMetaDisponivel: false };
 const FILTROS = {
   contasAnuncio: [{ id: 'ca1', nome: 'Loja Principal', moeda: 'BRL', fuso: 'America/Sao_Paulo' }],
@@ -697,23 +713,26 @@ describe('gestão: aba Análises', () => {
     const celulas = raiz.querySelectorAll('.kt-calor-grade .kt-calor-celula');
     expect(celulas).toHaveLength(168);
     expect(celulas[14].className).toContain('kt-calor-5');
-    // Mapa do Brasil: os 27 estados; SP (o maior) no degrau mais alto e em destaque, com os DDDs dele.
-    const ufs = [...raiz.querySelectorAll('.kt-mapa-uf')];
-    expect(ufs).toHaveLength(27);
-    const uf = (sigla: string) => ufs.find((e) => e.querySelector('strong')!.textContent === sigla)!;
-    expect(uf('SP').className).toContain('kt-calor-5');
-    expect(uf('MG').className).toContain('kt-calor-3');
-    expect(uf('BA').className).toContain('kt-calor-0');
+    // Mapa do Brasil: os 27 estados vão para o ECharts em escala logarítmica, de 1 lead (log 0) ao estado
+    // com mais leads (SP); estado sem lead vai sem valor e fica com a cor de fundo (cinza).
+    const serie = mockMapa.opcao.series[0];
+    expect(serie.map).toBe('BR');
+    expect(serie.data).toHaveLength(27);
+    const valorDe = (uf: string) => serie.data.find((d: { name: string }) => d.name === uf).value;
+    expect([valorDe('SP'), valorDe('MG'), valorDe('BA')]).toEqual([Math.log(6), Math.log(3), null]);
+    expect(mockMapa.opcao.visualMap).toMatchObject({ min: 0, max: Math.log(6), text: ['6', '1'] });
+    expect(mockMapa.opcao.tooltip.formatter({ name: 'MG' })).toContain('Minas Gerais');
+    // Sem hover, o detalhe é o do estado com mais leads, com os DDDs dele.
     const detalhe = () => raiz.querySelector('.kt-mapa-detalhe')!.textContent;
     expect(detalhe()).toContain('São Paulo');
     expect(detalhe()).toContain('6 leads');
     expect([...raiz.querySelectorAll('.kt-mapa-ddds li')].map((li) => li.textContent)).toEqual(['11São Paulo4', '19Campinas2']);
-    // Foco do teclado num estado troca o detalhe.
-    await act(async () => {
-      uf('MG').dispatchEvent(new FocusEvent('focus'));
-    });
+    // Passar o mouse num estado troca o detalhe; sair do mapa volta ao maior.
+    await act(async () => mockMapa.eventos.mouseover({ name: 'MG' }));
     expect(detalhe()).toContain('Minas Gerais');
     expect(detalhe()).toContain('38Montes Claros3');
+    await act(async () => mockMapa.eventos.globalout({}));
+    expect(detalhe()).toContain('São Paulo');
     // Ranking por DDD com a cidade da região.
     const porDdd = [...raiz.querySelectorAll('.kt-barras')].at(-1)!;
     expect([...porDdd.querySelectorAll('.kt-barra-rotulo')].map((e) => e.textContent)).toEqual(['11 · São Paulo', '38 · Montes Claros', '19 · Campinas']);

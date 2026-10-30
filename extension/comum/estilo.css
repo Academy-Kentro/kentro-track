@@ -355,6 +355,8 @@ ol.kt-passos > li::before {
   align-items: center;
   justify-content: center;
 }
+ul.kt-permissoes { margin: 6px 0 0; padding-left: 18px; }
+ul.kt-permissoes > li { padding: 2px 0; }
 
 details > summary { cursor: pointer; list-style: none; }
 details > summary::-webkit-details-marker { display: none; }

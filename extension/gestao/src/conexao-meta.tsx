@@ -41,10 +41,28 @@ function FormularioToken({ api, aoConectar, cancelar }: { api: Api; aoConectar: 
           sistema.
         </li>
         <li>
-          Em <em>Atribuir ativos</em>, dê acesso às <strong>contas de anúncio</strong> (e ao pixel, se for usar eventos depois).
+          Em <em>Atribuir ativos</em>, dê acesso às <strong>contas de anúncio</strong>, às <strong>páginas</strong> (para os formulários de lead) e
+          ao <strong>pixel</strong> (para os eventos).
         </li>
         <li>
-          Clique em <em>Gerar token</em>, marque a permissão <strong>ads_read</strong> e copie o token.
+          Clique em <em>Gerar token</em>, marque as permissões abaixo e copie o token:
+          <ul class="kt-permissoes">
+            <li>
+              <strong>ads_read</strong>: campanhas, investimento e resultados
+            </li>
+            <li>
+              <strong>ads_management</strong>: envio de eventos (CAPI) e leitura dos formulários
+            </li>
+            <li>
+              <strong>business_management</strong>: ativos do Business Manager
+            </li>
+            <li>
+              <strong>pages_show_list</strong>, <strong>pages_read_engagement</strong> e <strong>pages_manage_ads</strong>: páginas e seus formulários
+            </li>
+            <li>
+              <strong>leads_retrieval</strong>: os leads dos formulários
+            </li>
+          </ul>
         </li>
       </ol>
       {erro && <Aviso tipo="erro">{erro}</Aviso>}

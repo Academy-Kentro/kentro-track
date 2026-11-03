@@ -32,9 +32,21 @@ model Conta {
   versaoWebhook        Int         @default(1) @map("versao_webhook")
   /// Captura de webhook da Kentro que recebe cada lead de formulário (a automação cria a oportunidade).
   capturaKentroUrl     String?     @map("captura_kentro_url")
+  /// Chave da API aberta: só existe depois que o admin gera a primeira.
+  chaveApiHash         String?     @unique @map("chave_api_hash")
+  /// O admin precisa ligar: as conversas vão para a IA (Anthropic) para serem analisadas.
+  inspetorAtivo        Boolean     @default(false) @map("inspetor_ativo")
+  /// AAAA-MM a que inspetorUsadas se refere.
+  inspetorMes          String?     @map("inspetor_mes")
+  inspetorUsadas       Int         @default(0) @map("inspetor_usadas")
   criadoEm             DateTime    @default(now()) @map("criado_em")
   atualizadoEm         DateTime    @updatedAt @map("atualizado_em")
 
+  links         LinkRastreavel[]
+  visitas       VisitaLink[]
+  sugestoes     ConversaoSugerida[]
+  webhooks      WebhookSaida[]
+  enviosWebhook EnvioWebhook[]
   conexaoMeta   ConexaoMeta?
   leads         Lead[]
   etapas        EtapaFunil[]
@@ -300,6 +312,8 @@ model EtapaFunil {
   eventoMeta     String?   @map("evento_meta")
   /// O atendente mandar uma destas frases leva o lead a esta etapa (sem diferenciar caixa nem acento).
   frases         String[]  @default([])
+  /// Mais eventos do Meta, além de eventoMeta, enviados quando o lead chega aqui.
+  eventosExtras  String[]  @default([]) @map("eventos_extras")
   /// Etapa de venda: tem prioridade sobre o valor escrito na mensagem da frase.
   valorPadrao    Decimal?  @map("valor_padrao") @db.Decimal(14, 2)
   botaoAtendente Boolean   @default(true) @map("botao_atendente")
@@ -380,12 +394,30 @@ model Lead {
   segundaRespostaEm    DateTime? @map("segunda_resposta_em")
   ultimaMensagemEm     DateTime? @map("ultima_mensagem_em")
   ultimaMensagemLeadEm DateTime? @map("ultima_mensagem_lead_em")
+  /// Última vez que o Inspetor leu a conversa: só lê de novo se chegou mensagem depois.
+  inspecionadoEm       DateTime? @map("inspecionado_em")
 
-  conta      Conta        @relation(fields: [contaId], references: [id], onDelete: Cascade)
-  etapaFunil EtapaFunil?  @relation(fields: [etapaId], references: [id], onDelete: SetNull)
-  eventos    EventoLead[]
-  envios     EnvioCapi[]
+  // Link rastreável: copiado da visita que abriu a conversa.
+  linkId      String? @map("link_id") @db.Uuid
+  utmSource   String? @map("utm_source")
+  utmMedium   String? @map("utm_medium")
+  utmCampaign String? @map("utm_campaign")
+  utmContent  String? @map("utm_content")
+  utmTerm     String? @map("utm_term")
+  gclid       String?
+  gbraid      String?
+  wbraid      String?
+  fbclid      String?
 
+  conta         Conta               @relation(fields: [contaId], references: [id], onDelete: Cascade)
+  etapaFunil    EtapaFunil?         @relation(fields: [etapaId], references: [id], onDelete: SetNull)
+  link          LinkRastreavel?     @relation(fields: [linkId], references: [id], onDelete: SetNull)
+  eventos       EventoLead[]
+  envios        EnvioCapi[]
+  sugestoes     ConversaoSugerida[]
+  enviosWebhook EnvioWebhook[]
+
+  @@index([contaId, linkId])
   @@unique([contaId, chatId])
   @@unique([contaId, leadgenId])
   @@index([contaId, telefoneChave])
@@ -424,6 +456,8 @@ model ConfigCapi {
   wabaId       String?  @map("waba_id")
   /// Com código de teste, os eventos aparecem em "Eventos de teste" e não contam.
   codigoTeste  String?  @map("codigo_teste")
+  /// Manda eventos também dos leads sem anúncio identificado (o Meta tenta casar pelo telefone).
+  enviarOrganicos Boolean @default(false) @map("enviar_organicos")
   /// { lead_recebido, qualificado, venda, descartado } → nome do evento ou null (não envia).
   mapeamento   Json     @default("{}")
   atualizadoEm DateTime @updatedAt @map("atualizado_em")
@@ -468,4 +502,137 @@ model EnvioCapi {
   @@index([status, proximaTentativaEm])
   @@index([contaId, criadoEm])
   @@map("envios_capi")
+}
+
+/// Link que leva ao WhatsApp e marca de onde o lead veio. A mensagem pronta leva o código da visita.
+model LinkRastreavel {
+  id             String   @id @default(uuid()) @db.Uuid
+  contaId        String   @map("conta_id") @db.Uuid
+  nome           String
+  /// O que aparece na URL pública (/l/<codigo>).
+  codigo         String   @unique
+  /// Só dígitos, com DDI.
+  telefone       String
+  mensagem       String
+  /// No computador: WhatsApp Web (senão, o aplicativo).
+  computadorWeb  Boolean  @default(true) @map("computador_web")
+  tituloEspera   String   @map("titulo_espera")
+  mensagemEspera String   @map("mensagem_espera")
+  /// Código legível na mensagem, para o caso de um canal remover caracteres invisíveis.
+  codigoVisivel  Boolean  @default(false) @map("codigo_visivel")
+  ativo          Boolean  @default(true)
+  criadoEm       DateTime @default(now()) @map("criado_em")
+  atualizadoEm   DateTime @updatedAt @map("atualizado_em")
+
+  conta   Conta        @relation(fields: [contaId], references: [id], onDelete: Cascade)
+  visitas VisitaLink[]
+  leads   Lead[]
+
+  @@index([contaId])
+  @@map("links_rastreaveis")
+}
+
+/// Um clique no link: os parâmetros da URL, sem IP nem nada que identifique a pessoa.
+model VisitaLink {
+  id            BigInt   @id @default(autoincrement())
+  /// Vai escondido na mensagem do WhatsApp e liga a conversa a esta visita.
+  codigo        String
+  contaId       String   @map("conta_id") @db.Uuid
+  linkId        String   @map("link_id") @db.Uuid
+  utmSource     String?  @map("utm_source")
+  utmMedium     String?  @map("utm_medium")
+  utmCampaign   String?  @map("utm_campaign")
+  utmContent    String?  @map("utm_content")
+  utmTerm       String?  @map("utm_term")
+  gclid         String?
+  gbraid        String?
+  wbraid        String?
+  fbclid        String?
+  /// Parâmetro fbid={{ad.id}}: liga o lead ao anúncio exato.
+  anuncioIdMeta String?  @map("anuncio_id_meta")
+  em            DateTime @default(now())
+
+  conta Conta          @relation(fields: [contaId], references: [id], onDelete: Cascade)
+  link  LinkRastreavel @relation(fields: [linkId], references: [id], onDelete: Cascade)
+
+  @@unique([contaId, codigo])
+  @@index([linkId, em])
+  @@index([em])
+  @@map("visitas_link")
+}
+
+/// Venda que o Inspetor achou na conversa e espera a decisão de uma pessoa.
+model ConversaoSugerida {
+  id            String    @id @default(uuid()) @db.Uuid
+  contaId       String    @map("conta_id") @db.Uuid
+  leadId        String    @map("lead_id") @db.Uuid
+  /// "alta", "media" ou "baixa".
+  confianca     String
+  /// O trecho da conversa que a IA usou: é o único texto de mensagem que o Kentro Track guarda.
+  evidencia     String
+  evidenciaEm   DateTime? @map("evidencia_em")
+  valorSugerido Decimal?  @map("valor_sugerido") @db.Decimal(14, 2)
+  /// "pendente", "aprovada" ou "recusada".
+  status        String    @default("pendente")
+  decididoEm    DateTime? @map("decidido_em")
+  decididoPor   String?   @map("decidido_por")
+  criadoEm      DateTime  @default(now()) @map("criado_em")
+
+  conta Conta @relation(fields: [contaId], references: [id], onDelete: Cascade)
+  lead  Lead  @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([contaId, status, criadoEm])
+  @@index([leadId])
+  @@map("conversoes_sugeridas")
+}
+
+/// Para onde a conta quer que os eventos dos leads sejam enviados (uma URL por evento).
+model WebhookSaida {
+  id               String   @id @default(uuid()) @db.Uuid
+  contaId          String   @map("conta_id") @db.Uuid
+  nome             String
+  urlCriada        String?  @map("url_criada")
+  urlAlterada      String?  @map("url_alterada")
+  urlMensagem      String?  @map("url_mensagem")
+  urlOrigem        String?  @map("url_origem")
+  /// Origens de lead que disparam. Vazio: todas.
+  origens          String[] @default([])
+  ativo            Boolean  @default(true)
+  /// Desligado sozinho depois de esgotar as tentativas: o motivo aparece para o admin.
+  motivoDesativado String?  @map("motivo_desativado")
+  criadoEm         DateTime @default(now()) @map("criado_em")
+  atualizadoEm     DateTime @updatedAt @map("atualizado_em")
+
+  conta  Conta          @relation(fields: [contaId], references: [id], onDelete: Cascade)
+  envios EnvioWebhook[]
+
+  @@index([contaId])
+  @@map("webhooks_saida")
+}
+
+/// Fila de envios dos webhooks. A mensagem não passa por aqui: o texto não é gravado.
+model EnvioWebhook {
+  id                 BigInt      @id @default(autoincrement())
+  contaId            String      @map("conta_id") @db.Uuid
+  webhookId          String      @map("webhook_id") @db.Uuid
+  leadId             String?     @map("lead_id") @db.Uuid
+  evento             String
+  url                String
+  payload            Json
+  status             StatusEnvio @default(pendente)
+  tentativas         Int         @default(0)
+  proximaTentativaEm DateTime    @default(now()) @map("proxima_tentativa_em")
+  emEnvioAte         DateTime?   @map("em_envio_ate")
+  respostaStatus     Int?        @map("resposta_status")
+  erro               String?
+  criadoEm           DateTime    @default(now()) @map("criado_em")
+  enviadoEm          DateTime?   @map("enviado_em")
+
+  conta   Conta        @relation(fields: [contaId], references: [id], onDelete: Cascade)
+  webhook WebhookSaida @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  lead    Lead?        @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  @@index([status, proximaTentativaEm])
+  @@index([contaId, criadoEm])
+  @@map("envios_webhook")
 }

@@ -24,6 +24,7 @@ export interface DadosConfig {
   wabaId?: string | null;
   codigoTeste?: string | null;
   mapeamento?: Partial<Mapeamento>;
+  enviarOrganicos?: boolean;
 }
 
 /** Erro de envio que adianta repetir: rede, Meta instável ou limite. Recusa de dado não muda sozinha. */
@@ -50,6 +51,7 @@ export class CapiService {
       wabaId: c?.wabaId ?? null,
       codigoTeste: c?.codigoTeste ?? null,
       mapeamento: lerMapeamento(c?.mapeamento),
+      enviarOrganicos: c?.enviarOrganicos ?? false,
     };
   }
 
@@ -61,6 +63,7 @@ export class CapiService {
     if (d.datasetNome !== undefined) dados.datasetNome = d.datasetNome?.trim().slice(0, 200) || null;
     if (d.wabaId !== undefined) dados.wabaId = d.wabaId?.trim() || null;
     if (d.codigoTeste !== undefined) dados.codigoTeste = d.codigoTeste?.trim() || null;
+    if (d.enviarOrganicos !== undefined) dados.enviarOrganicos = d.enviarOrganicos;
     if (d.mapeamento !== undefined) dados.mapeamento = lerMapeamento({ ...lerMapeamento(atual?.mapeamento), ...d.mapeamento });
     if (d.token === null) Object.assign(dados, { tokenCifrado: null, iv: null });
     else if (typeof d.token === 'string' && d.token.trim()) {
@@ -122,8 +125,11 @@ export class CapiService {
    * as de antes (qualificado, venda, descartado) continuam com o mesmo id e não saem em dobro.
    */
   async enfileirarEtapa(lead: Lead, etapa: EtapaFunil, quando = new Date()): Promise<void> {
-    if (!etapa.eventoMeta) return;
-    await this.gravar(lead, etapa.chave, () => etapa.eventoMeta, etapa.tipo === 'venda', quando);
+    if (etapa.eventoMeta) await this.gravar(lead, etapa.chave, () => etapa.eventoMeta, etapa.tipo === 'venda', quando);
+    // Cada evento a mais tem o próprio event_id: o Meta conta os dois, sem tratar como repetição.
+    for (const extra of etapa.eventosExtras) {
+      if (extra !== etapa.eventoMeta) await this.gravar(lead, `${etapa.chave}.${extra}`, () => extra, etapa.tipo === 'venda', quando);
+    }
   }
 
   private async gravar(
@@ -133,9 +139,10 @@ export class CapiService {
     comValor: boolean,
     quando: Date,
   ): Promise<void> {
-    if (lead.origem === 'organico') return; // sem anúncio, o evento não ajuda a otimizar campanha
     const config = await this.prisma.configCapi.findUnique({ where: { contaId: lead.contaId } });
     if (!config?.ativo || !config.datasetId) return;
+    // Sem anúncio, o evento ajuda pouco a otimizar campanha: só vai se o admin pediu.
+    if (lead.origem === 'organico' && !config.enviarOrganicos) return;
     const eventName = nomeDoEvento(config);
     if (!eventName) return;
     const { moeda } = await this.prisma.conta.findUniqueOrThrow({ where: { id: lead.contaId }, select: { moeda: true } });

@@ -20,6 +20,8 @@ export interface LeadDaLista {
   valorVenda: number | null;
   campanha: string | null;
   anuncio: string | null;
+  /** Nome do link rastreável por onde chegou. */
+  link?: string | null;
   vinculoAproximado: boolean;
 }
 
@@ -48,6 +50,10 @@ export interface FiltroLeads {
   vendaAte?: string;
   ordem?: '' | 'antigos' | 'maior_venda' | 'nome' | 'ultima_mensagem';
   aguardando?: boolean;
+  link?: string;
+  utmSource?: string;
+  utmMedium?: string;
+  utmCampaign?: string;
 }
 
 export const FILTRO_LEADS_PADRAO: FiltroLeads = { origem: '', etapa: '', pagina: 1 };
@@ -84,12 +90,19 @@ export function consultaLeads(base: string, filtro: FiltroLeads): string {
   if (filtro.vendaAte) q.set('vendaAte', filtro.vendaAte);
   if (filtro.ordem) q.set('ordem', filtro.ordem);
   if (filtro.aguardando) q.set('aguardando', '1');
+  if (filtro.link) q.set('link', filtro.link);
+  if (filtro.utmSource) q.set('utmSource', filtro.utmSource);
+  if (filtro.utmMedium) q.set('utmMedium', filtro.utmMedium);
+  if (filtro.utmCampaign) q.set('utmCampaign', filtro.utmCampaign);
   if (filtro.pagina > 1) q.set('pagina', String(filtro.pagina));
   return q.toString();
 }
 
 /** Quantos filtros do painel "Filtros" estão ligados (o botão mostra o número). */
-export const filtrosAtivos = (f: FiltroLeads): number => [f.conjunto, f.anuncio, f.atendente, f.vendaDe || f.vendaAte, f.ordem].filter(Boolean).length;
+export const filtrosAtivos = (f: FiltroLeads): number => [f.conjunto, f.anuncio, f.atendente, f.vendaDe || f.vendaAte, f.ordem, f.link, f.utmSource, f.utmMedium, f.utmCampaign].filter(Boolean).length;
+
+/** De onde o lead veio, em uma linha: campanha, link rastreável ou o tipo da origem. */
+export const origemDoLead = (l: LeadDaLista): string => l.campanha ?? (l.link ? `Link: ${l.link}` : ORIGENS.find((o) => o.id === l.origem)?.rotulo ?? l.origem);
 
 /** "1.234,50" → 1234.5 (NaN se não for número). */
 export const lerValor = (texto: string): number => Number(texto.trim().replace(/\./g, '').replace(',', '.'));

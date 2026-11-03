@@ -48,6 +48,10 @@ export class ConfigCapiDto {
   codigoTeste?: string | null;
 
   @IsOptional()
+  @IsBoolean()
+  enviarOrganicos?: boolean;
+
+  @IsOptional()
   @ValidateNested()
   @Type(() => MapeamentoDto)
   mapeamento?: MapeamentoDto;

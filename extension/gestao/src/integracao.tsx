@@ -28,7 +28,7 @@ function eventos(dados: Integracao): { id: string; titulo: string; onde: string 
     {
       id: 'mensagem',
       titulo: 'Mensagens: frases gatilho e 1ª resposta (recomendado)',
-      onde: 'Numa automação só com este elemento, disparada por dois gatilhos de mensagens: "todas as mensagens enviadas" e "todas as mensagens recebidas". O texto só é lido para procurar as frases gatilho: o Kentro Track guarda os horários, não as mensagens.',
+      onde: 'Numa automação só com este elemento, disparada por dois gatilhos de mensagens: "todas as mensagens enviadas" e "todas as mensagens recebidas". O texto só é lido para procurar as frases gatilho e o código dos links rastreáveis: o Kentro Track guarda os horários, não as mensagens.',
     },
     ...(dados.etapas ?? []).map((e) => ({ id: e.chave, titulo: `${e.nome} (opcional)`, onde: ONDE[e.tipo] })),
   ].filter((e) => dados.exemplos[e.id]);

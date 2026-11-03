@@ -43,6 +43,12 @@ export class EtapaDto {
   frases?: string[];
 
   @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(5)
+  @Matches(EVENTO_META, { each: true, message: 'Nome de evento do Meta: letras, números e "_", começando por letra.' })
+  eventosExtras?: string[];
+
+  @IsOptional()
   @ValidateIf((_, v) => v !== null)
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)

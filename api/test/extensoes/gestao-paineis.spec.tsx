@@ -375,6 +375,219 @@ describe('formatos e utilidades', () => {
   });
 });
 
+describe('gestão: links rastreáveis', () => {
+  const LINK = { id: 'k1', nome: 'Botão do site', telefone: '5538999990000', mensagem: 'Olá', computadorWeb: true, tituloEspera: 'Aguarde', mensagemEspera: 'Já vai', codigoVisivel: false, ativo: true, url: 'https://t/l/abc', urlDireta: 'https://t/l/abc?direto=1', visitas: 12, conversas: 5, vendas: 2, receita: 300 };
+  const LINKS = { pixel: '<script src="https://t/p/c1.js"></script>', parametrosMeta: 'fbid={{ad.id}}', itens: [LINK] };
+  const abrir = async (conta = CONTA) => {
+    const falso = await montar({ http: api({ '/v1/conta': conta, '/v1/painel/filtros': FILTROS, '/v1/links': LINKS, '/v1/links/k1': LINK }) });
+    await clicar(botao('Links'));
+    return falso;
+  };
+
+  it('mostra os resultados, o pixel e os parâmetros para o anúncio', async () => {
+    await abrir();
+    expect(raiz.querySelector('tbody tr')!.textContent).toContain('Botão do site');
+    expect(raiz.querySelector('tbody tr')!.textContent).toContain('12');
+    expect(texto()).toContain('https://t/p/c1.js');
+    expect(texto()).toContain('fbid={{ad.id}}');
+  });
+
+  it('o admin cria e edita; o nome e o telefone são obrigatórios', async () => {
+    const falso = await abrir();
+    await clicar(botao('Novo link'));
+    expect(botao('Salvar link')!.hasAttribute('disabled')).toBe(true);
+    const preencher = async (rotulo: string, valor: string) => {
+      const el = [...raiz.querySelectorAll('label.kt-campo')].find((l) => l.textContent?.includes(rotulo))!.querySelector('input, textarea') as HTMLInputElement;
+      await act(async () => {
+        el.value = valor;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    };
+    await preencher('Nome do link', 'Instagram');
+    await preencher('WhatsApp de atendimento', '38999990000');
+    await preencher('Mensagem que já vem', 'Oi!');
+    await clicar(botao('Salvar link'));
+    const criado = falso.chamadas.find((c) => c.method === 'POST' && c.url.endsWith('/v1/links'))!;
+    expect(criado.corpo).toMatchObject({ nome: 'Instagram', telefone: '38999990000', mensagem: 'Oi!', ativo: true });
+    await clicar(botao('Editar'));
+    await clicar(botao('Salvar link'));
+    expect(falso.chamadas.some((c) => c.method === 'PUT' && c.url.endsWith('/v1/links/k1'))).toBe(true);
+  });
+
+  it('o gestor só acompanha', async () => {
+    await abrir({ ...CONTA, papel: 'gestor' });
+    expect(botao('Novo link')).toBeUndefined();
+    expect(botao('Editar')).toBeUndefined();
+  });
+});
+
+describe('gestão: Inspetor de Vendas', () => {
+  const ETAPAS = [
+    { id: 'e-orc', nome: 'Orçamento', tipo: 'andamento' },
+    { id: 'e-venda', nome: 'Venda', tipo: 'venda' },
+  ];
+  const SUGESTAO = { id: 's1', leadId: 'l1', nome: 'Maria', telefone: '(38) 9****-0000', chatId: '501', confianca: 'alta', evidencia: 'Pagamento confirmado', evidenciaEm: '2026-10-10T12:00:00Z', valorSugerido: 297 };
+  const ESTADO = { disponivel: true, ativo: true, limite: 500, usadas: 42, etapas: ETAPAS, sugestoes: [SUGESTAO] };
+  const ROTAS = { '/v1/conta': CONTA, '/v1/painel/filtros': FILTROS, '/v1/inspetor': ESTADO, '/v1/inspetor/s1/aprovar': { ok: true }, '/v1/inspetor/s1/recusar': { ok: true }, '/v1/inspetor/ligado': ESTADO };
+  const abrir = async (rotas: Record<string, unknown> = ROTAS, opcoes: Partial<OpcoesFalso> = {}) => {
+    const falso = await montar({ http: api(rotas), ...opcoes });
+    await clicar(botao('Inspetor'));
+    return falso;
+  };
+  const ultima = (falso: { chamadas: ChamadaHttp[] }, trecho: string) => falso.chamadas.filter((c) => c.url.includes(trecho)).at(-1)!;
+
+  it('mostra o uso e a evidência; aprovar vai com a etapa de venda e o valor sugerido', async () => {
+    const falso = await abrir();
+    expect(texto()).toContain('42 de 500 conversas analisadas');
+    expect(raiz.querySelector('.kt-evidencia')!.textContent).toBe('Pagamento confirmado');
+    await clicar([...raiz.querySelectorAll('.kt-sugestao button')].find((b) => b.textContent === 'Aprovar'));
+    expect(ultima(falso, '/s1/aprovar').corpo).toEqual({ etapa: 'e-venda', valor: 297 });
+  });
+
+  it('recusar pede só o id', async () => {
+    const falso = await abrir();
+    await clicar(botao('Recusar'));
+    expect(falso.chamadas.some((c) => c.url.endsWith('/s1/recusar'))).toBe(true);
+  });
+
+  it('analisar lê as conversas pela Kentro, manda só o texto e conta o resultado', async () => {
+    const falso = await abrir(
+      { ...ROTAS, '/v1/inspetor/candidatos': { itens: [{ leadId: 'l1', chatId: '501' }] }, '/v1/inspetor/analisar': { analisada: true, sugestao: { id: 's2' } } },
+      {
+        mensagens: [
+          { id: 2, direction: 'out', text: 'Pago!', at: '2026-10-10T12:01:00Z' },
+          { id: 1, direction: 'in', text: 'Quero', at: '2026-10-10T12:00:00Z' },
+          { id: 3, direction: 'in', text: null },
+        ],
+      },
+    );
+    await clicar(botao('Analisar conversas'));
+    expect(ultima(falso, '/inspetor/analisar').corpo).toEqual({
+      leadId: 'l1',
+      mensagens: [
+        { id: '1', direcao: 'in', texto: 'Quero', em: '2026-10-10T12:00:00.000Z' },
+        { id: '2', direcao: 'out', texto: 'Pago!', em: '2026-10-10T12:01:00.000Z' },
+      ],
+    });
+    expect(texto()).toContain('1 conversa analisada, 1 com possível venda.');
+  });
+
+  it('atingiu o limite: para e explica', async () => {
+    await montar({
+      http: (c) => {
+        if (c.url.includes('/inspetor/analisar')) return erro(429, 'LIMITE_MENSAL', 'A conta chegou ao limite.');
+        if (c.url.includes('/inspetor/candidatos')) return ok({ itens: [{ leadId: 'l1', chatId: '501' }] });
+        return api(ROTAS)(c);
+      },
+      mensagens: [{ id: 1, direction: 'in', text: 'Oi' }],
+    });
+    await clicar(botao('Inspetor'));
+    await clicar(botao('Analisar conversas'));
+    expect(raiz.querySelector('.kt-aviso-erro')!.textContent).toContain('A conta chegou ao limite.');
+  });
+
+  it('desligado: o admin vê o que vai para a IA antes de ligar, e o gestor só o recado', async () => {
+    const desligado = { ...ESTADO, ativo: false, sugestoes: [] };
+    const falso = await abrir({ ...ROTAS, '/v1/inspetor': desligado });
+    expect(botao('Analisar conversas')).toBeUndefined();
+    expect(texto()).toContain('enviado à Anthropic');
+    await act(async () => {
+      (raiz.querySelector('.kt-inspetor-ligar input') as HTMLInputElement).click();
+    });
+    await assentar(act);
+    expect(ultima(falso, '/inspetor/ligado').corpo).toEqual({ ativo: true });
+    render(null, raiz);
+    await abrir({ ...ROTAS, '/v1/conta': { ...CONTA, papel: 'gestor' }, '/v1/inspetor': desligado });
+    expect(raiz.querySelector('.kt-inspetor-ligar')).toBeNull();
+    expect(texto()).toContain('O administrador precisa ligar');
+  });
+
+  it('sem a chave da IA no servidor, avisa e não deixa analisar', async () => {
+    await abrir({ ...ROTAS, '/v1/inspetor': { ...ESTADO, disponivel: false } });
+    expect(texto()).toContain('ANTHROPIC_API_KEY');
+    expect(botao('Analisar conversas')!.hasAttribute('disabled')).toBe(true);
+  });
+
+  it('aprovar todas pede confirmação e respeita o filtro de confiança', async () => {
+    const baixa = { ...SUGESTAO, id: 's2', confianca: 'baixa' };
+    const falso = await abrir({ ...ROTAS, '/v1/inspetor': { ...ESTADO, sugestoes: [SUGESTAO, baixa] } }, { confirmar: true });
+    const filtro = [...raiz.querySelectorAll('select')].find((s) => s.textContent?.includes('Todas as confianças'))!;
+    await act(async () => {
+      filtro.value = 'alta';
+      filtro.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await clicar(botao('Aprovar todas'));
+    const aprovadas = falso.chamadas.filter((c) => c.url.endsWith('/aprovar'));
+    expect(aprovadas.map((c) => new URL(c.url).pathname)).toEqual(['/v1/inspetor/s1/aprovar']);
+  });
+
+  it('aprovar todas sem confirmar não faz nada', async () => {
+    const falso = await abrir(ROTAS, { confirmar: false });
+    await clicar(botao('Aprovar todas'));
+    expect(falso.chamadas.some((c) => c.url.endsWith('/aprovar'))).toBe(false);
+  });
+});
+
+describe('gestão: webhooks e primeiros passos', () => {
+  const WEBHOOK = { id: 'w1', nome: 'Planilha', urlCriada: 'https://a/1', urlAlterada: null, urlMensagem: null, urlOrigem: null, origens: [], ativo: false, motivoDesativado: 'Desligado depois de 4 tentativas', segredo: 'abc' };
+  const ENVIO = { id: '9', webhook: 'Planilha', evento: 'lead_create', status: 'erro', tentativas: 4, respostaStatus: 500, erro: 'O destino respondeu 500.', criadoEm: '2026-10-10T12:00:00Z' };
+
+  it('mostra o motivo de ter desligado e reenvia o que deu erro', async () => {
+    const falso = await montar({
+      http: (c) => {
+        const caminho = new URL(c.url).pathname;
+        if (caminho === '/v1/webhooks') return ok({ maximo: 3, webhooks: [WEBHOOK], envios: [ENVIO] });
+        if (caminho.endsWith('/reenviar')) return ok({ ok: true });
+        return api({ '/v1/conta': CONTA, '/v1/painel/filtros': FILTROS })(c);
+      },
+    });
+    await clicar(botao('Configurações'));
+    expect(texto()).toContain('Desligado depois de 4 tentativas');
+    await clicar(botao('Reenviar'));
+    expect(falso.chamadas.some((c) => c.method === 'POST' && c.url.endsWith('/v1/webhooks/envios/9/reenviar'))).toBe(true);
+  });
+
+  it('cria com as URLs e as origens escolhidas', async () => {
+    const falso = await montar({
+      http: (c) => {
+        const caminho = new URL(c.url).pathname;
+        if (caminho === '/v1/webhooks') return c.method === 'POST' ? ok(WEBHOOK) : ok({ maximo: 3, webhooks: [], envios: [] });
+        return api({ '/v1/conta': CONTA, '/v1/painel/filtros': FILTROS })(c);
+      },
+    });
+    await clicar(botao('Configurações'));
+    await clicar(botao('Adicionar webhook'));
+    const form = raiz.querySelector('.kt-formulario-webhook')!;
+    const campos = form.querySelectorAll('input:not([type="checkbox"])');
+    await act(async () => {
+      (campos[0] as HTMLInputElement).value = 'CRM';
+      campos[0].dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => {
+      (campos[1] as HTMLInputElement).value = 'https://crm.exemplo/novo';
+      campos[1].dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => {
+      (form.querySelector('input[type="checkbox"]') as HTMLInputElement).click();
+    });
+    await clicar(botao('Salvar webhook'));
+    expect(falso.chamadas.find((c) => c.method === 'POST' && c.url.endsWith('/v1/webhooks'))!.corpo).toMatchObject({ nome: 'CRM', urlCriada: 'https://crm.exemplo/novo', origens: ['ctwa'] });
+  });
+
+  it('primeiros passos: marca o que está feito, fecha e não volta; tudo pronto, nem aparece', async () => {
+    const PASSOS = { meta: true, mensagens: false, frases: false, primeiraVenda: false, link: false, eventos: false };
+    const falso = await montar({ http: api({ '/v1/conta': CONTA, '/v1/painel/filtros': FILTROS, '/v1/painel/visao-geral': VISAO, '/v1/painel/primeiros-passos': PASSOS }) });
+    expect(raiz.querySelector('.kt-passo-feito')!.textContent).toContain('Conectar o Meta');
+    await clicar(raiz.querySelector('button[aria-label="Fechar as configurações iniciais"]')!);
+    expect(raiz.querySelector('.kt-passos-iniciais')).toBeNull();
+    expect(await falso.omni.storage.get('passos-iniciais-fechado')).toBe(true);
+    render(null, raiz);
+    const prontos = Object.fromEntries(Object.keys(PASSOS).map((k) => [k, true]));
+    await montar({ http: api({ '/v1/conta': CONTA, '/v1/painel/filtros': FILTROS, '/v1/painel/visao-geral': VISAO, '/v1/painel/primeiros-passos': prontos }) });
+    expect(raiz.querySelector('.kt-passos-iniciais')).toBeNull();
+  });
+});
+
 describe('gestão: funil do atendimento, leads, equipe e integração', () => {
   const COM_FUNIL = { ...VISAO, organicos: 3, metricas: metricas({ entradas: 40, qualificados: 20, vendas: 8, receita: 6000, roas: 4, custoPorVenda: 187.5, taxaVenda: 20 }) };
   const LEADS = {

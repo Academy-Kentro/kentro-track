@@ -7,7 +7,7 @@ import { ErroApi } from '../comum/erros';
 import { PrismaService } from '../comum/prisma.service';
 import { etapaPublica, EtapasService } from '../etapas/etapas.service';
 import { mascararTelefone, normalizarTelefone, telefoneParaPlanilha } from '../leads/telefone';
-import { montarCsv, valorCsv } from './csv';
+import { montarCsv, montarCsvGoogle, valorCsv } from './csv';
 import { calcular, Metricas, Somas, somar, somasDe, ZERO } from './metricas';
 
 export interface Filtro {
@@ -30,9 +30,13 @@ export interface FiltroLeads extends Filtro {
   vendaAte?: string;
   ordem?: string;
   aguardando?: string;
+  link?: string;
+  utmSource?: string;
+  utmMedium?: string;
+  utmCampaign?: string;
 }
 
-export type TipoExportacao = 'leads' | 'vendas' | 'jornada';
+export type TipoExportacao = 'leads' | 'vendas' | 'jornada' | 'google_offline';
 
 const MAX_DIAS = 400;
 const MAX_ANUNCIOS = 2000;
@@ -106,6 +110,7 @@ interface LinhaLead {
   vinculo_anuncio: string | null;
   campanha: string | null;
   anuncio: string | null;
+  link_nome: string | null;
 }
 
 export interface NoCampanha {
@@ -346,6 +351,10 @@ export class PainelService {
   private filtrosDeLeads(filtro: FiltroLeads, horaLocal: Escopo['horaLocal']): Prisma.Sql {
     const partes: Prisma.Sql[] = [];
     if (filtro.origem) partes.push(Prisma.sql`AND l.origem = ${filtro.origem}::"OrigemLead"`);
+    if (filtro.link) partes.push(Prisma.sql`AND l.link_id = ${filtro.link}::uuid`);
+    if (filtro.utmSource) partes.push(Prisma.sql`AND lower(l.utm_source) = lower(${filtro.utmSource})`);
+    if (filtro.utmMedium) partes.push(Prisma.sql`AND lower(l.utm_medium) = lower(${filtro.utmMedium})`);
+    if (filtro.utmCampaign) partes.push(Prisma.sql`AND lower(l.utm_campaign) = lower(${filtro.utmCampaign})`);
     if (filtro.conjunto) partes.push(Prisma.sql`AND l.conjunto_id_meta = ${filtro.conjunto}`);
     if (filtro.anuncio) partes.push(Prisma.sql`AND l.anuncio_id_meta = ${filtro.anuncio}`);
     if (filtro.atendente) partes.push(filtro.atendente === 'sem' ? Prisma.sql`AND l.atendente_id IS NULL` : Prisma.sql`AND l.atendente_id = ${filtro.atendente}`);
@@ -395,6 +404,7 @@ export class PainelService {
       valorVenda: l.valor_venda == null ? null : Number(l.valor_venda),
       campanha: l.campanha,
       anuncio: l.anuncio,
+      link: l.link_nome,
       vinculoAproximado: l.vinculo_anuncio === 'url' || l.vinculo_anuncio === 'texto',
     };
   }
@@ -420,10 +430,11 @@ export class PainelService {
     const porEtapa = this.filtroDeEtapa(filtro.etapa);
     const linhas = await this.prisma.$queryRaw<LinhaLead[]>`
       SELECT l.id, l.origem, l.etapa, l.etapa_id::text AS etapa_id, l.nome, l.telefone, l.chat_id, l.recebido_em, l.atendido_em, l.primeira_resposta_em, l.ultima_mensagem_em, l.atendente_nome,
-             l.valor_venda, l.vinculo_anuncio, c.nome AS campanha, a.nome AS anuncio
+             l.valor_venda, l.vinculo_anuncio, c.nome AS campanha, a.nome AS anuncio, lk.nome AS link_nome
       FROM leads l
       LEFT JOIN campanhas c ON c.conta_anuncio_id = l.conta_anuncio_id AND c.id_meta = l.campanha_id_meta
       LEFT JOIN anuncios a ON a.conta_anuncio_id = l.conta_anuncio_id AND a.id_meta = l.anuncio_id_meta
+      LEFT JOIN links_rastreaveis lk ON lk.id = l.link_id
       WHERE ${ondeLeads(filtro.de, filtro.ate, true)} ${filtros} ${porEtapa}
       ORDER BY ${ORDENS_LEADS[filtro.ordem ?? ''] ?? ORDENS_LEADS.recentes}
       LIMIT ${porPagina + 1} OFFSET ${(pagina - 1) * porPagina}`;
@@ -450,10 +461,11 @@ export class PainelService {
         FROM leads l WHERE ${onde}
       )
       SELECT l.id, l.origem, l.etapa, l.etapa_id::text AS etapa_id, l.nome, l.telefone, l.chat_id, l.recebido_em, l.atendido_em, l.primeira_resposta_em, l.ultima_mensagem_em, l.atendente_nome,
-             l.valor_venda, l.vinculo_anuncio, c.nome AS campanha, a.nome AS anuncio
+             l.valor_venda, l.vinculo_anuncio, c.nome AS campanha, a.nome AS anuncio, lk.nome AS link_nome
       FROM numerados l
       LEFT JOIN campanhas c ON c.conta_anuncio_id = l.conta_anuncio_id AND c.id_meta = l.campanha_id_meta
       LEFT JOIN anuncios a ON a.conta_anuncio_id = l.conta_anuncio_id AND a.id_meta = l.anuncio_id_meta
+      LEFT JOIN links_rastreaveis lk ON lk.id = l.link_id
       WHERE l.posicao <= ${CARTOES_POR_COLUNA}
       ORDER BY l.recebido_em DESC`;
     const etapas = await this.etapas.listar(contaId);
@@ -471,7 +483,7 @@ export class PainelService {
   async opcoesDeLeads(contaId: string, filtro: Filtro) {
     const { ondeLeads } = await this.escopo(contaId, filtro);
     const onde = ondeLeads(filtro.de, filtro.ate, true);
-    const [conjuntos, anuncios, atendentes] = await Promise.all([
+    const [conjuntos, anuncios, atendentes, links, utms] = await Promise.all([
       this.prisma.$queryRaw<{ id: string; nome: string | null }[]>`
         SELECT l.conjunto_id_meta AS id, MAX(c.nome) AS nome
         FROM leads l LEFT JOIN conjuntos c ON c.conta_anuncio_id = l.conta_anuncio_id AND c.id_meta = l.conjunto_id_meta
@@ -486,9 +498,25 @@ export class PainelService {
         SELECT l.atendente_id AS id, MAX(l.atendente_nome) AS nome
         FROM leads l WHERE ${onde} AND l.atendente_id IS NOT NULL
         GROUP BY 1 ORDER BY 2 NULLS LAST LIMIT ${MAX_OPCOES_FILTRO}`,
+      this.prisma.linkRastreavel.findMany({ where: { contaId }, orderBy: { nome: 'asc' }, select: { id: true, nome: true } }),
+      this.prisma.$queryRaw<{ campo: string; valor: string }[]>`
+        SELECT campo, valor FROM (
+          SELECT 'source' AS campo, l.utm_source AS valor FROM leads l WHERE ${onde}
+          UNION SELECT 'medium', l.utm_medium FROM leads l WHERE ${onde}
+          UNION SELECT 'campaign', l.utm_campaign FROM leads l WHERE ${onde}
+        ) u WHERE valor IS NOT NULL ORDER BY valor LIMIT ${MAX_OPCOES_FILTRO * 3}`,
     ]);
     const comNome = (l: { id: string; nome: string | null }) => ({ id: l.id, nome: l.nome ?? `#${l.id}` });
-    return { conjuntos: conjuntos.map(comNome), anuncios: anuncios.map(comNome), atendentes: atendentes.map(comNome) };
+    const utm = (campo: string) => utms.filter((u) => u.campo === campo).map((u) => u.valor);
+    return {
+      conjuntos: conjuntos.map(comNome),
+      anuncios: anuncios.map(comNome),
+      atendentes: atendentes.map(comNome),
+      links,
+      utmSource: utm('source'),
+      utmMedium: utm('medium'),
+      utmCampaign: utm('campaign'),
+    };
   }
 
   /** As últimas mudanças de etapa da conta, de qualquer período. */
@@ -524,6 +552,24 @@ export class PainelService {
     let cabecalho: string[];
     let linhas: (string | number | null)[][];
 
+    if (tipo === 'google_offline') {
+      // O modelo de importação de cliques do Google Ads: vírgula, fuso explícito e só o que tem identificador de clique.
+      const vendas = await this.prisma.$queryRaw<{ gclid: string | null; gbraid: string | null; wbraid: string | null; etapa_id: string | null; quando: string; valor: unknown }[]>`
+        SELECT l.gclid, l.gbraid, l.wbraid, l.etapa_id::text AS etapa_id, to_char(l.venda_em, 'YYYY-MM-DD HH24:MI:SS') AS quando, l.valor_venda AS valor
+        FROM leads l
+        WHERE ${filtroLeads(true)} AND l.etapa = 'venda' AND (l.gclid IS NOT NULL OR l.gbraid IS NOT NULL OR l.wbraid IS NOT NULL)
+          AND ${horaLocal('venda_em')}::date BETWEEN ${filtro.de}::date AND ${filtro.ate}::date ${filtros}
+        ORDER BY l.venda_em DESC
+        LIMIT ${MAX_LINHAS_EXPORTACAO + 1}`;
+      const { moeda } = await this.prisma.conta.findUniqueOrThrow({ where: { id: contaId }, select: { moeda: true } });
+      const usadas = vendas.slice(0, MAX_LINHAS_EXPORTACAO);
+      const csv = montarCsvGoogle(
+        ['Google Click ID', 'GBRAID', 'WBRAID', 'Conversion Name', 'Conversion Time', 'Conversion Value', 'Conversion Currency'],
+        usadas.map((v) => [v.gclid, v.gbraid, v.wbraid, (v.etapa_id && nomeEtapa.get(v.etapa_id)) || 'Venda', `${v.quando}+0000`, Number(v.valor ?? 0).toFixed(2), moeda]),
+      );
+      return { arquivo: `google-offline-${filtro.de}-a-${filtro.ate}.csv`, csv, linhas: usadas.length, truncado: vendas.length > MAX_LINHAS_EXPORTACAO };
+    }
+
     if (tipo === 'jornada') {
       const tipos = ['em_atendimento', ...etapas.map((e) => e.chave)];
       const eventos = await this.prisma.$queryRaw<{ em: string; nome: string | null; telefone: string | null; texto: string; autor: string }[]>`
@@ -544,15 +590,17 @@ export class PainelService {
       const leads = await this.prisma.$queryRaw<Record<string, string | null>[]>`
         SELECT ${quando(Prisma.sql`l.recebido_em`)} AS recebido, ${quando(Prisma.sql`l.venda_em`)} AS venda, ${quando(Prisma.sql`l.primeira_resposta_em`)} AS resposta, ${quando(Prisma.sql`l.ultima_mensagem_em`)} AS mensagem, l.nome, l.telefone, l.origem::text AS origem,
                l.etapa::text AS etapa, l.etapa_id::text AS etapa_id, l.atendente_nome, l.valor_venda, l.motivo_descarte,
-               ca.nome AS campanha, co.nome AS conjunto, a.nome AS anuncio
+               ca.nome AS campanha, co.nome AS conjunto, a.nome AS anuncio, lk.nome AS link_nome,
+               l.utm_source, l.utm_medium, l.utm_campaign, l.utm_content, l.utm_term, l.gclid, l.fbclid, l.ctwa_clid
         FROM leads l
         LEFT JOIN campanhas ca ON ca.conta_anuncio_id = l.conta_anuncio_id AND ca.id_meta = l.campanha_id_meta
         LEFT JOIN conjuntos co ON co.conta_anuncio_id = l.conta_anuncio_id AND co.id_meta = l.conjunto_id_meta
         LEFT JOIN anuncios a ON a.conta_anuncio_id = l.conta_anuncio_id AND a.id_meta = l.anuncio_id_meta
+        LEFT JOIN links_rastreaveis lk ON lk.id = l.link_id
         WHERE ${periodo} ${filtros} ${porEtapa}
         ORDER BY ${tipo === 'vendas' ? Prisma.sql`l.venda_em DESC` : ORDENS_LEADS[filtro.ordem ?? ''] ?? ORDENS_LEADS.recentes}
         LIMIT ${MAX_LINHAS_EXPORTACAO + 1}`;
-      cabecalho = ['Chegou em', 'Lead', 'Telefone', 'Origem', 'Campanha', 'Conjunto', 'Anúncio', 'Atendente', 'Etapa', 'Venda em', 'Valor da venda', 'Motivo do descarte', 'Primeira resposta', 'Última mensagem'];
+      cabecalho = ['Chegou em', 'Lead', 'Telefone', 'Origem', 'Campanha', 'Conjunto', 'Anúncio', 'Atendente', 'Etapa', 'Venda em', 'Valor da venda', 'Motivo do descarte', 'Primeira resposta', 'Última mensagem', 'Link rastreável', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'fbclid', 'ctwa_clid'];
       linhas = leads.map((l) => [
         l.recebido,
         l.nome,
@@ -568,6 +616,15 @@ export class PainelService {
         l.motivo_descarte,
         l.resposta,
         l.mensagem,
+        l.link_nome,
+        l.utm_source,
+        l.utm_medium,
+        l.utm_campaign,
+        l.utm_content,
+        l.utm_term,
+        l.gclid,
+        l.fbclid,
+        l.ctwa_clid,
       ]);
     }
     const truncado = linhas.length > MAX_LINHAS_EXPORTACAO;
@@ -630,6 +687,19 @@ export class PainelService {
         };
       }),
     };
+  }
+
+  /** O que falta configurar: a Visão geral mostra até a conta estar rodando. */
+  async primeirosPassos(contaId: string) {
+    const [conexao, mensagem, frase, venda, link, configCapi] = await Promise.all([
+      this.prisma.conexaoMeta.count({ where: { contaId } }),
+      this.prisma.lead.count({ where: { contaId, ultimaMensagemEm: { not: null } } }),
+      this.prisma.etapaFunil.count({ where: { contaId, NOT: { frases: { isEmpty: true } } } }),
+      this.prisma.lead.count({ where: { contaId, etapa: 'venda' } }),
+      this.prisma.linkRastreavel.count({ where: { contaId } }),
+      this.prisma.configCapi.count({ where: { contaId, ativo: true } }),
+    ]);
+    return { meta: conexao > 0, mensagens: mensagem > 0, frases: frase > 0, primeiraVenda: venda > 0, link: link > 0, eventos: configCapi > 0 };
   }
 
   /** O que o filtro do painel oferece: contas de anúncio selecionadas e as campanhas delas. */

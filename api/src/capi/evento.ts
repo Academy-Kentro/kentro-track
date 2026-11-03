@@ -59,6 +59,8 @@ export function montarEvento(lead: Lead, gatilho: string, eventName: string, ctx
   const partes = (lead.nome ?? '').trim().split(/\s+/).map(normalizarNome).filter(Boolean);
   if (partes.length) userData.fn = [hash(partes[0])];
   if (partes.length > 1) userData.ln = [hash(partes[partes.length - 1])];
+  // Veio por link rastreável com clique do Meta: é o que mais ajuda o Meta a casar o evento com o anúncio.
+  if (lead.fbclid) userData.fbc = `fb.1.${lead.recebidoEm.getTime()}.${lead.fbclid}`;
 
   const customData: Record<string, unknown> = {};
   if (comValor && lead.valorVenda != null) {

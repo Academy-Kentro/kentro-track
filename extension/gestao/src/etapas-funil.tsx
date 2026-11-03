@@ -67,7 +67,11 @@ export function EtapasFunil({ api }: { api: Api }) {
     setErro('');
     try {
       // Linha em branco da caixa de frases fica só na tela.
-      const etapas = lista.map(({ local: _, chave: __, ...e }) => (e.frases ? { ...e, frases: e.frases.map((f) => f.trim()).filter(Boolean) } : e));
+      const etapas = lista.map(({ local: _, chave: __, ...e }) => ({
+        ...e,
+        ...(e.frases ? { frases: e.frases.map((f) => f.trim()).filter(Boolean) } : {}),
+        ...(e.eventosExtras ? { eventosExtras: e.eventosExtras.map((x) => x.trim()).filter(Boolean) } : {}),
+      }));
       receber((await api<{ etapas: EtapaFunil[] }>('/v1/etapas', { method: 'PUT', body: { etapas } })).etapas);
       avisar('Etapas do funil salvas.');
     } catch (e) {
@@ -152,6 +156,15 @@ export function EtapasFunil({ api }: { api: Api }) {
                 <span>Frases gatilho, uma por linha</span>
                 <textarea rows={2} value={(e.frases ?? []).join('\n')} onInput={(ev) => mudar(e.local, { frases: (ev.target as HTMLTextAreaElement).value.split('\n') })} />
                 <span class="kt-campo-ajuda kt-muted">Quando o atendente enviar uma destas frases, o lead vem para esta etapa. Só leva adiante, nunca volta o lead no funil.</span>
+              </label>
+              <label class="kt-campo">
+                <span>Outros eventos no Meta, separados por vírgula</span>
+                <input
+                  value={(e.eventosExtras ?? []).join(',')}
+                  placeholder="Ex.: Subscribe, StartTrial"
+                  onInput={(ev) => mudar(e.local, { eventosExtras: (ev.target as HTMLInputElement).value.split(',') })}
+                />
+                <span class="kt-campo-ajuda kt-muted">Enviados junto com o evento principal, quando o lead chega a esta etapa.</span>
               </label>
               {e.tipo === 'venda' && (
                 <label class="kt-campo">

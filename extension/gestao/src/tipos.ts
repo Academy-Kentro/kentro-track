@@ -1,4 +1,4 @@
-export type Papel = 'admin' | 'gestor' | 'atendimento';
+export type Papel = 'admin' | 'gestor' | 'atendimento' | 'api';
 
 export interface Conta {
   id: string;
@@ -35,6 +35,8 @@ export interface EtapaFunil {
   eventoMeta: string | null;
   /** O atendente mandar uma destas frases leva o lead a esta etapa. */
   frases?: string[];
+  /** Mais eventos do Meta, além do principal. */
+  eventosExtras?: string[];
   /** Venda: tem prioridade sobre o valor escrito na mensagem. */
   valorPadrao?: number | null;
   botaoAtendente: boolean;

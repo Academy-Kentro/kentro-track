@@ -4,7 +4,7 @@ import { Aviso, Carregando, Vazio } from '../../comum/componentes';
 import { dinheiro, inteiro } from '../../comum/formato';
 import { avisar } from '../../comum/omni';
 import { useDados } from './filtro';
-import { CLASSE_TIPO, consultaLeads, lerValor, ORIGENS, SITUACOES, type FiltroLeads, type LeadDaLista } from './leads-comum';
+import { CLASSE_TIPO, consultaLeads, lerValor, origemDoLead, SITUACOES, type FiltroLeads, type LeadDaLista } from './leads-comum';
 import type { EtapaFunil, TipoEtapa } from './tipos';
 
 interface DadosQuadro {
@@ -131,7 +131,7 @@ export function QuadroLeads({ api, q, filtro }: { api: Api; q: string; filtro: F
                     <strong>{l.nome ?? 'Sem nome'}</strong>
                     {l.telefone && <span class="kt-muted">{l.telefone}</span>}
                     <span class="kt-cartao-origem">
-                      {l.campanha ?? ORIGENS.find((o) => o.id === l.origem)?.rotulo ?? l.origem}
+                      {origemDoLead(l)}
                       {l.anuncio && <span class="kt-muted"> › {l.anuncio}</span>}
                     </span>
                     <span class="kt-muted">

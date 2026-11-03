@@ -19,6 +19,7 @@ const SEM_PERMISSAO: Record<Papel, string> = {
   admin: 'Esta ação é só para o administrador (Kentro Track — Gestão com a chave de admin).',
   gestor: 'Esta tela é da extensão Kentro Track — Gestão.',
   atendimento: 'Esta ação é do painel do atendimento (Kentro Track — Atendimento).',
+  api: 'Esta rota é da API de integração: use a chave de integração gerada em Configurações › Chaves.',
 };
 
 @Injectable()

@@ -23,7 +23,7 @@ const horario = (at: MensagemOmni['at']) => {
  * Lê a conversa direto da Kentro, com a permissão de quem está vendo: nada disso passa pela API do
  * Kentro Track nem fica guardado nela.
  */
-export function ConversaLead({ omni, lead, fechar }: { omni: Omni; lead: LeadDaLista; fechar: () => void }) {
+export function ConversaLead({ omni, lead, fechar }: { omni: Omni; lead: Pick<LeadDaLista, 'nome' | 'chatId'>; fechar: () => void }) {
   const [mensagens, setMensagens] = useState<MensagemOmni[] | null>(null);
   const [temMais, setTemMais] = useState(false);
   const [erro, setErro] = useState('');

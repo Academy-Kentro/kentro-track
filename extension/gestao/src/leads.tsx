@@ -6,7 +6,7 @@ import { Icone } from '../../comum/icones';
 import type { Omni } from '../../comum/omni';
 import { atendentesNaKentro, gravarAtendentes } from './atendentes';
 import { Seletor, type Carga } from './filtro';
-import { CLASSE_TIPO, FILTRO_LEADS_PADRAO, filtrosAtivos, ORIGENS, SITUACOES, type DadosLeads, type Etapa, type FiltroLeads, type LeadDaLista, type VisaoLeads } from './leads-comum';
+import { CLASSE_TIPO, FILTRO_LEADS_PADRAO, filtrosAtivos, origemDoLead, ORIGENS, SITUACOES, type DadosLeads, type Etapa, type FiltroLeads, type LeadDaLista, type VisaoLeads } from './leads-comum';
 import { ConversaLead } from './leads-conversa';
 import { PainelFiltros, useFiltrosSalvos } from './leads-filtros';
 import { TrocaEmLote } from './leads-lote';
@@ -269,7 +269,7 @@ export function Leads({
                       </span>
                     </td>
                     <td class="kt-celula-quebra">
-                      {l.campanha ?? ORIGENS.find((o) => o.id === l.origem)?.rotulo ?? l.origem}
+                      {origemDoLead(l)}
                       {l.anuncio && <span class="kt-muted"> › {l.anuncio}</span>}
                       {l.vinculoAproximado && <span class="kt-muted" title="Anúncio identificado pelo texto ou pelo link do post"> *</span>}
                     </td>

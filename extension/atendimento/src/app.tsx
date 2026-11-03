@@ -138,6 +138,7 @@ export function App({ omni, ctx }: { omni: Omni; ctx: CtxOmni }) {
             telefone: selecionado.contact?.phone ?? undefined,
             nome: selecionado.contact?.name ?? undefined,
             contatoId: selecionado.contactId != null ? String(selecionado.contactId) : undefined,
+            primeiraMensagem: busca.primeiroTexto,
             anuncio: resumo && Object.keys(resumo).length ? resumo : undefined,
           },
         });

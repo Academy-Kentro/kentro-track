@@ -15,6 +15,7 @@ interface Config {
   tokenProprio: boolean;
   wabaId: string | null;
   codigoTeste: string | null;
+  enviarOrganicos?: boolean;
   mapeamento: Record<Gatilho, string | null>;
 }
 
@@ -227,6 +228,9 @@ export function EventosMeta({ omni, api }: { omni: Omni; api: Api }) {
 
       <Interruptor ligado={atual.ativo} mudar={(v) => setRascunho({ ...rascunho, ativo: v })}>
         Enviar eventos para o pixel
+      </Interruptor>
+      <Interruptor ligado={!!atual.enviarOrganicos} mudar={(v) => setRascunho({ ...rascunho, enviarOrganicos: v })}>
+        Enviar também das conversas sem anúncio identificado
       </Interruptor>
 
       <h3 class="kt-subtitulo">Pixel</h3>

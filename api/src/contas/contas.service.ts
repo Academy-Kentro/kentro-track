@@ -6,10 +6,11 @@ import { PrismaService } from '../comum/prisma.service';
 /** O papel vem da chave usada: admin configura, gestor só lê os painéis, atendimento só o painel do chat. */
 export type Papel = TipoSegredo;
 
-const CAMPO_DO_HASH: Record<Papel, 'chaveAdminHash' | 'chaveGestorHash' | 'chaveAtendimentoHash'> = {
+const CAMPO_DO_HASH: Record<Papel, 'chaveAdminHash' | 'chaveGestorHash' | 'chaveAtendimentoHash' | 'chaveApiHash'> = {
   admin: 'chaveAdminHash',
   gestor: 'chaveGestorHash',
   atendimento: 'chaveAtendimentoHash',
+  api: 'chaveApiHash',
 };
 
 export interface ChavesNovas {
@@ -42,7 +43,7 @@ export class ContasService {
   async buscarPorChave(chave: string): Promise<{ conta: Conta; papel: Papel } | null> {
     const hash = hashSegredo(chave);
     const conta = await this.prisma.conta.findFirst({
-      where: { OR: [{ chaveAdminHash: hash }, { chaveGestorHash: hash }, { chaveAtendimentoHash: hash }] },
+      where: { OR: [{ chaveAdminHash: hash }, { chaveGestorHash: hash }, { chaveAtendimentoHash: hash }, { chaveApiHash: hash }] },
     });
     if (!conta) return null;
     const papel = (Object.keys(CAMPO_DO_HASH) as Papel[]).find((p) => conta[CAMPO_DO_HASH[p]] === hash)!;

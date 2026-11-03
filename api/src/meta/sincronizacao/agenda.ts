@@ -3,6 +3,7 @@ import { ConfigApp, CONFIG_APP } from '../../comum/config';
 import { CapiService } from '../../capi/capi.service';
 import { PrismaService } from '../../comum/prisma.service';
 import { FormulariosService } from '../../formularios/formularios.service';
+import { WebhooksService } from '../../webhooks/webhooks.service';
 import { SincronizacaoService } from './sincronizacao.service';
 
 const CICLO_MS = 30_000;
@@ -10,6 +11,9 @@ const CICLO_MS = 30_000;
 const POR_CICLO = 5;
 const LIMPEZA_MS = 60 * 60_000;
 const DIAS_REGISTRO = 7;
+/** Visita que não virou conversa em 6 meses não vira mais; envio de webhook antigo só ocupa espaço. */
+const DIAS_VISITA = 180;
+const DIAS_ENVIO_WEBHOOK = 30;
 
 @Injectable()
 export class AgendaSincronizacao implements OnApplicationBootstrap, OnModuleDestroy {
@@ -22,6 +26,7 @@ export class AgendaSincronizacao implements OnApplicationBootstrap, OnModuleDest
     private readonly sincronizacao: SincronizacaoService,
     private readonly capi: CapiService,
     private readonly formularios: FormulariosService,
+    private readonly webhooks: WebhooksService,
     private readonly prisma: PrismaService,
     @Inject(CONFIG_APP) private readonly config: ConfigApp,
   ) {}
@@ -43,6 +48,7 @@ export class AgendaSincronizacao implements OnApplicationBootstrap, OnModuleDest
     try {
       // Eventos primeiro: são rápidos e o atraso aparece para o cliente (otimização das campanhas).
       await this.capi.enviarPendentes();
+      await this.webhooks.enviarPendentes();
       // Lead de formulário vira oportunidade na Kentro: quanto antes o atendente liga, mais converte.
       await this.formularios.lerPendentes();
       await this.formularios.enviarPendentes();
@@ -50,6 +56,8 @@ export class AgendaSincronizacao implements OnApplicationBootstrap, OnModuleDest
       if (Date.now() - this.ultimaLimpeza > LIMPEZA_MS) {
         this.ultimaLimpeza = Date.now();
         await this.prisma.chamadaMeta.deleteMany({ where: { em: { lt: new Date(Date.now() - DIAS_REGISTRO * 86_400_000) } } });
+        await this.prisma.visitaLink.deleteMany({ where: { em: { lt: new Date(Date.now() - DIAS_VISITA * 86_400_000) } } });
+        await this.prisma.envioWebhook.deleteMany({ where: { criadoEm: { lt: new Date(Date.now() - DIAS_ENVIO_WEBHOOK * 86_400_000) } } });
       }
     } catch (erro) {
       this.logger.error(erro instanceof Error ? erro.stack ?? erro.message : String(erro));

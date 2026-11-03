@@ -89,6 +89,8 @@ export function primeiraComAnuncio(mensagens: MensagemOmni[]): MensagemOmni | nu
 export interface Busca {
   mensagem: MensagemOmni | null;
   analisadas: number;
+  /** A mensagem mais antiga do cliente: pode trazer o código do link rastreável. */
+  primeiroTexto?: string;
 }
 
 const POR_PAGINA = 50;
@@ -109,7 +111,9 @@ export async function buscarAnuncio(omni: Omni, chatId: number, maxPaginas = 4):
     if (maisAntiga.id === antes) break;
     antes = maisAntiga.id;
   }
-  return { mensagem: primeiraComAnuncio(todas), analisadas: todas.length };
+  const doCliente = todas.map((m, i) => ({ m, t: instante(m, i) })).filter(({ m }) => m.direction === 'in' && m.text);
+  const primeira = doCliente.length ? doCliente.reduce((a, b) => (b.t < a.t ? b : a)).m : null;
+  return { mensagem: primeiraComAnuncio(todas), analisadas: todas.length, primeiroTexto: primeira?.text?.slice(0, 5000) };
 }
 
 /** Diagnóstico para o suporte: só o anúncio e metadados, sem texto nem telefone do cliente. */

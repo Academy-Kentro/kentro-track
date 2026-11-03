@@ -10,6 +10,9 @@ import { Criativos } from './criativos';
 import { BarraFiltros, consulta, Filtro, intervalo, PRESETS, useDados } from './filtro';
 import { DadosEquipe, Equipe, Leads } from './leads';
 import { consultaLeads, DadosLeads, FILTRO_LEADS_PADRAO, FiltroLeads, VisaoLeads } from './leads-comum';
+import { Inspetor } from './inspetor';
+import { Links } from './links';
+import { PassosIniciais } from './passos-iniciais';
 import { CHAVES_PENDENTES, PrimeiroUso } from './primeiro-uso';
 import type { Campanhas as DadosCampanhas, Conta, Criativos as DadosCriativos, Filtros, VisaoGeral as DadosVisao } from './tipos';
 import { VisaoGeral } from './visao-geral';
@@ -22,13 +25,15 @@ const ABAS: readonly { id: string; titulo: string; icone: NomeIcone; soAdmin?: t
   { id: 'campanhas', titulo: 'Campanhas', icone: 'megafone' },
   { id: 'criativos', titulo: 'Criativos', icone: 'imagem' },
   { id: 'leads', titulo: 'Leads', icone: 'lista' },
+  { id: 'inspetor', titulo: 'Inspetor', icone: 'estrela' },
+  { id: 'links', titulo: 'Links', icone: 'link' },
   { id: 'equipe', titulo: 'Equipe', icone: 'usuarios' },
   { id: 'config', titulo: 'Configurações', icone: 'ajustes', soAdmin: true },
 ] as const;
 
-type IdAba = 'visao' | 'analises' | 'campanhas' | 'criativos' | 'leads' | 'equipe' | 'config';
+type IdAba = 'visao' | 'analises' | 'campanhas' | 'criativos' | 'leads' | 'inspetor' | 'links' | 'equipe' | 'config';
 
-const PAPEL: Record<Conta['papel'], string> = { admin: 'Administrador', gestor: 'Gestor', atendimento: 'Atendimento' };
+const PAPEL: Record<Conta['papel'], string> = { admin: 'Administrador', gestor: 'Gestor', atendimento: 'Atendimento', api: 'Integração' };
 const FILTRO_SALVO = 'filtro';
 const FILTRO_PADRAO: Filtro = { preset: 'ultimos30', contaAnuncio: '', campanha: '' };
 /** Enquanto os 90 dias chegam, as abas se atualizam sozinhas. */
@@ -96,11 +101,13 @@ function Paineis({ omni, api, conta, aba, irPara }: { omni: Omni; api: Api; cont
   return (
     <>
       <BarraFiltros filtro={valido} opcoes={opcoes.dados} mudar={mudar} />
+      {aba === 'visao' && <PassosIniciais omni={omni} api={api} />}
       {aba === 'visao' && <VisaoGeral carga={visao} />}
       {aba === 'analises' && <Analises carga={analises} />}
       {aba === 'campanhas' && <Campanhas carga={campanhas} />}
       {aba === 'criativos' && <Criativos carga={criativos} />}
       {aba === 'leads' && <Leads omni={omni} api={api} q={q} carga={leads} filtro={filtroLeads} mudar={setFiltroLeads} visao={visaoLeads} mudarVisao={setVisaoLeads} />}
+      {aba === 'inspetor' && <Inspetor omni={omni} api={api} q={q} admin={conta.papel === 'admin'} />}
       {aba === 'equipe' && <Equipe omni={omni} api={api} carga={equipe} />}
     </>
   );
@@ -155,11 +162,11 @@ export function App({ omni, ctx }: { omni: Omni; ctx: CtxOmni }) {
   }
 
   const { conta } = estado;
-  if (conta.papel === 'atendimento') {
+  if (conta.papel === 'atendimento' || conta.papel === 'api') {
     return (
       <main class="kt-gestao">
         <Aviso tipo="erro">
-          Esta instalação está com a chave de atendimento. Cole a chave de admin (ou a de gestor) na configuração do Kentro Track — Gestão.
+          Esta instalação está com a chave de {conta.papel === 'api' ? 'integração' : 'atendimento'}. Cole a chave de admin (ou a de gestor) na configuração do Kentro Track — Gestão.
         </Aviso>
       </main>
     );
@@ -208,7 +215,7 @@ export function App({ omni, ctx }: { omni: Omni; ctx: CtxOmni }) {
           </button>
         ))}
       </nav>
-      {atual.id === 'config' ? <Configuracoes omni={omni} api={api} /> : <Paineis omni={omni} api={api} conta={conta} aba={atual.id as IdAba} irPara={setAba} />}
+      {atual.id === 'config' ? <Configuracoes omni={omni} api={api} /> : atual.id === 'links' ? <Links api={api} podeEditar={conta.papel === 'admin'} /> : <Paineis omni={omni} api={api} conta={conta} aba={atual.id as IdAba} irPara={setAba} />}
     </main>
   );
 }

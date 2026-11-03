@@ -8,12 +8,14 @@ import { EtapasFunil } from './etapas-funil';
 import { EventosMeta } from './eventos-meta';
 import { FormulariosMeta } from './formularios-meta';
 import { IntegracaoAtendimento } from './integracao';
+import { Webhooks } from './webhooks';
 import type { Papel } from './tipos';
 
 const CHAVES: { tipo: Papel; rotulo: string; ondeColar: string }[] = [
   { tipo: 'admin', rotulo: 'Chave de admin', ondeColar: 'Kentro Track — Gestão (instalação dos administradores)' },
   { tipo: 'gestor', rotulo: 'Chave de gestor', ondeColar: 'Kentro Track — Gestão (instalação dos supervisores)' },
   { tipo: 'atendimento', rotulo: 'Chave de atendimento', ondeColar: 'Kentro Track — Atendimento' },
+  { tipo: 'api', rotulo: 'Chave de integração (API)', ondeColar: 'nos sistemas que usam a API (cabeçalho X-Track-Chave; rotas GET /v1/api/leads, GET /v1/api/etapas e POST /v1/api/leads/etapa)' },
 ];
 
 function Chaves({ omni, api }: { omni: Omni; api: Api }) {
@@ -75,6 +77,7 @@ export function Configuracoes({ omni, api }: { omni: Omni; api: Api }) {
     <>
       <ConexaoMeta omni={omni} api={api} />
       <IntegracaoAtendimento omni={omni} api={api} />
+      <Webhooks omni={omni} api={api} />
       <FormulariosMeta api={api} />
       <EtapasFunil api={api} />
       <EventosMeta omni={omni} api={api} />

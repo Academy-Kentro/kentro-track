@@ -14,6 +14,10 @@ interface OpcoesLeads {
   conjuntos: Opcao[];
   anuncios: Opcao[];
   atendentes: Opcao[];
+  links?: Opcao[];
+  utmSource?: string[];
+  utmMedium?: string[];
+  utmCampaign?: string[];
 }
 
 export interface FiltroSalvo {
@@ -80,6 +84,21 @@ export function PainelFiltros({
     </label>
   );
 
+  const listaUtm = (rotulo: string, chave: 'utmSource' | 'utmMedium' | 'utmCampaign') =>
+    (opcoes.dados?.[chave]?.length ?? 0) > 0 && (
+      <label class="kt-campo">
+        <span>{rotulo}</span>
+        <select value={rascunho[chave] ?? ''} onChange={(e) => campo(chave, (e.target as HTMLSelectElement).value)}>
+          <option value="">Todos</option>
+          {opcoes.dados![chave]!.map((v) => (
+            <option key={v} value={v}>
+              {v}
+            </option>
+          ))}
+        </select>
+      </label>
+    );
+
   return (
     <Secao icone="ajustes" titulo="Filtros" descricao="Valem para a lista, as colunas e a exportação, dentro do período escolhido acima.">
       {opcoes.erro && <Aviso tipo="erro">{opcoes.erro}</Aviso>}
@@ -87,6 +106,22 @@ export function PainelFiltros({
         {lista('Conjunto de anúncios', 'conjunto', opcoes.dados?.conjuntos)}
         {lista('Anúncio', 'anuncio', opcoes.dados?.anuncios)}
         {lista('Atendente', 'atendente', opcoes.dados?.atendentes, { id: 'sem', nome: 'Sem atendente' })}
+        {(opcoes.dados?.links?.length ?? 0) > 0 && (
+          <label class="kt-campo">
+            <span>Link rastreável</span>
+            <select value={rascunho.link ?? ''} onChange={(e) => campo('link', (e.target as HTMLSelectElement).value)}>
+              <option value="">Todos</option>
+              {opcoes.dados!.links!.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.nome}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {listaUtm('UTM Source', 'utmSource')}
+        {listaUtm('UTM Medium', 'utmMedium')}
+        {listaUtm('UTM Campaign', 'utmCampaign')}
         <label class="kt-campo">
           <span>Venda a partir de</span>
           <input type="date" value={rascunho.vendaDe ?? ''} onChange={(e) => campo('vendaDe', (e.target as HTMLInputElement).value)} />

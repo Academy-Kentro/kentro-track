@@ -111,7 +111,7 @@ describe('leads no painel de gestão', () => {
       expect(res.body.conjuntos).toEqual([{ id: '201', nome: 'Frio' }, { id: '200', nome: 'Quente' }]);
       expect(res.body.anuncios).toEqual([{ id: '301', nome: 'Reels' }, { id: '300', nome: 'Vídeo' }]);
       expect(res.body.atendentes).toEqual([{ id: '7', nome: 'Ana' }]);
-      expect((await pegar('leads/opcoes?de=2026-01-01&ate=2026-01-02')).body).toEqual({ conjuntos: [], anuncios: [], atendentes: [] });
+      expect((await pegar('leads/opcoes?de=2026-01-01&ate=2026-01-02')).body).toMatchObject({ conjuntos: [], anuncios: [], atendentes: [], links: [], utmSource: [] });
     });
   });
 
@@ -247,10 +247,10 @@ describe('leads no painel de gestão', () => {
       expect(res.body).toMatchObject({ arquivo: 'leads-2026-10-10-a-2026-10-18.csv', linhas: 3, truncado: false });
       expect(res.body.csv.startsWith('﻿')).toBe(true);
       const linhas = linhasDe(res.body.csv);
-      expect(linhas[0]).toBe('Chegou em;Lead;Telefone;Origem;Campanha;Conjunto;Anúncio;Atendente;Etapa;Venda em;Valor da venda;Motivo do descarte;Primeira resposta;Última mensagem');
+      expect(linhas[0]).toBe('Chegou em;Lead;Telefone;Origem;Campanha;Conjunto;Anúncio;Atendente;Etapa;Venda em;Valor da venda;Motivo do descarte;Primeira resposta;Última mensagem;Link rastreável;utm_source;utm_medium;utm_campaign;utm_content;utm_term;gclid;fbclid;ctwa_clid');
       // A aspa dobra porque a célula tem aspas; o apóstrofo impede o Excel de executar.
       expect(linhas[1]).toContain(`"'=HYPERLINK(""http://x"")"`);
-      expect(linhas[3]).toBe('12/10/2026 12:00;Maria Souza;55 38 99999-0000;Anúncio (WhatsApp);Black Friday;Quente;Vídeo;Ana;Novo;;;;;');
+      expect(linhas[3]).toBe('12/10/2026 12:00;Maria Souza;55 38 99999-0000;Anúncio (WhatsApp);Black Friday;Quente;Vídeo;Ana;Novo;;;;;;;;;;;;;;');
     });
 
     it('o telefone do CSV colado na troca em lote acha o mesmo lead', async () => {

@@ -8,7 +8,7 @@ import { avisar } from '../../comum/omni';
 import { useDados } from './filtro';
 import { consultaLeads, type FiltroLeads } from './leads-comum';
 
-type TipoExportacao = 'leads' | 'vendas' | 'jornada';
+type TipoExportacao = 'leads' | 'vendas' | 'jornada' | 'google_offline';
 
 interface Exportacao {
   arquivo: string;
@@ -25,6 +25,7 @@ const TIPOS: { id: TipoExportacao; rotulo: string; ajuda: string }[] = [
   { id: 'leads', rotulo: 'Leads', ajuda: 'Os leads que chegaram no período, com os filtros da tela.' },
   { id: 'vendas', rotulo: 'Vendas', ajuda: 'As vendas fechadas no período (pela data da venda), com os filtros da tela.' },
   { id: 'jornada', rotulo: 'Histórico de etapas', ajuda: 'Cada mudança de etapa feita no período, com quem fez.' },
+  { id: 'google_offline', rotulo: 'Conversões offline (Google Ads)', ajuda: 'Vendas com clique do Google (gclid), no modelo de importação do Google Ads.' },
 ];
 
 /** O arquivo nasce no navegador: a API só é alcançada pelo omni.http.request, que devolve texto. */

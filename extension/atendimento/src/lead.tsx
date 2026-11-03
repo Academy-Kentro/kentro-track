@@ -26,6 +26,7 @@ const ETAPAS_PADRAO: EtapaBotao[] = [
 export interface LeadPainel {
   id: string;
   origem: 'ctwa' | 'formulario' | 'link' | 'organico';
+  link?: { nome: string; utmSource: string | null; utmMedium: string | null; utmCampaign: string | null } | null;
   etapa: Etapa;
   etapaId?: string | null;
   etapaNome?: string | null;
@@ -113,6 +114,12 @@ export function Origem({ lead }: { lead: LeadPainel }) {
           chegou {haQuanto(lead.recebidoEm)}
         </span>
       </div>
+      {lead.link && (
+        <p class="kt-muted">
+          Link: {lead.link.nome}
+          {[lead.link.utmSource, lead.link.utmMedium, lead.link.utmCampaign].filter(Boolean).map((u) => ` · ${u}`)}
+        </p>
+      )}
       {a && (
         <div class="kt-anuncio">
           <Miniatura url={a.anuncio?.miniatura ?? null} />

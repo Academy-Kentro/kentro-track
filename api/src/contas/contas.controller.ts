@@ -14,7 +14,7 @@ export class RegistrarContaDto {
   nome?: string;
 }
 
-const TIPOS_DE_CHAVE = { admin: 'admin', gestor: 'gestor', atendimento: 'atendimento' } as const;
+const TIPOS_DE_CHAVE = { admin: 'admin', gestor: 'gestor', atendimento: 'atendimento', api: 'api' } as const;
 
 @Controller('v1')
 export class ContasController {

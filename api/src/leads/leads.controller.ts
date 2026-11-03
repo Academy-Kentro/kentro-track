@@ -30,6 +30,12 @@ export class VincularDto {
   @IsOptional()
   @IsObject()
   anuncio?: Record<string, unknown>;
+
+  /** A primeira mensagem do cliente: só para achar o código do link rastreável. Não é gravada. */
+  @IsOptional()
+  @IsString()
+  @Length(0, 5000)
+  primeiraMensagem?: string;
 }
 
 export class EtapaDto {
@@ -66,7 +72,7 @@ export function atendenteDa(req: Request): Autor {
 /** Frase gatilho e valor ficam no começo da mensagem; o resto não precisa ser lido. */
 const MAX_TEXTO_MENSAGEM = 5000;
 
-const gestorDa = (req: Request): Autor => ({ ...atendenteDa(req), tipo: 'gestor' });
+export const gestorDa = (req: Request): Autor => ({ ...atendenteDa(req), tipo: 'gestor' });
 
 const uuid = new ParseUUIDPipe({ exceptionFactory: () => new ErroApi(404, 'NAO_ENCONTRADO', 'Lead não encontrado.') });
 
@@ -82,7 +88,7 @@ export class AtendimentoController {
   @HttpCode(200)
   async vincular(@Req() req: RequisicaoDaConta, @Body() dto: VincularDto) {
     const lead = await this.leads.registrarAtendimento(req.conta.id, dto, atendenteDa(req), true);
-    return this.leads.paraPainel(lead);
+    return this.leads.paraPainel(await this.leads.ligarVisita(req.conta.id, lead, dto.primeiraMensagem));
   }
 
   @Get('chat/:chatId')
@@ -205,7 +211,9 @@ export class KentroController {
 
     // chat_iniciado não marca "atendido": o atendimento pode estar só com a IA ou na fila.
     // chat_iniciado pode ser reenviado (é idempotente): é assim que a automação conta quem assumiu.
-    const lead = await this.leads.definirAtendente(await this.leads.registrarAtendimento(conta.id, atendimento, autor, false), corpo.atendenteId, corpo.atendente);
+    const registrado = await this.leads.registrarAtendimento(conta.id, atendimento, autor, false);
+    const comVisita = await this.leads.ligarVisita(conta.id, registrado, typeof corpo.texto === 'string' ? corpo.texto.slice(0, MAX_TEXTO_MENSAGEM) : undefined);
+    const lead = await this.leads.definirAtendente(comVisita, corpo.atendenteId, corpo.atendente);
     if (evento !== 'chat_iniciado') {
       await this.leads.mudarEtapa(conta.id, lead, evento, { valor: valorDe(corpo.valor), motivo: typeof corpo.motivo === 'string' ? corpo.motivo : undefined }, autor);
     }
@@ -240,7 +248,7 @@ export class KentroController {
       url: this.leads.urlWebhook(contaId, versao),
       etapas: etapas.map((e) => ({ chave: e.chave, nome: e.nome, tipo: e.tipo })),
       exemplos: {
-        chat_iniciado: { evento: 'chat_iniciado', ...base, anuncio: { url: '{{message_ad_url}}', titulo: '{{message_ad_title}}', texto: '{{message_ad_body}}' } },
+        chat_iniciado: { evento: 'chat_iniciado', ...base, texto: '{{message_text}}', anuncio: { url: '{{message_ad_url}}', titulo: '{{message_ad_title}}', texto: '{{message_ad_body}}' } },
         mensagem: { evento: 'mensagem', ...base, direcao: '{{message_direction}}', texto: '{{message_text}}' },
         ...Object.fromEntries(etapas.map((e) => [e.chave, { evento: e.chave, chatId: '{{chat_id}}', ...extra(e.tipo), ...atendente }])),
       },

@@ -27,6 +27,7 @@ export interface EtapaEnviada {
   qualificada?: boolean;
   eventoMeta?: string | null;
   frases?: string[];
+  eventosExtras?: string[];
   valorPadrao?: number | null;
   botaoAtendente?: boolean;
   noPainel?: boolean;
@@ -55,6 +56,7 @@ export function etapaPublica(e: EtapaFunil) {
     qualificada: e.qualificada,
     eventoMeta: e.eventoMeta,
     frases: e.frases,
+    eventosExtras: e.eventosExtras,
     valorPadrao: e.valorPadrao == null ? null : Number(e.valorPadrao),
     botaoAtendente: e.botaoAtendente,
     noPainel: e.noPainel,
@@ -150,6 +152,7 @@ export class EtapasService {
           eventoMeta: e.eventoMeta?.trim() || null,
           // Sem o campo (extensão de versão anterior): mantém o que está gravado.
           ...(e.frases ? { frases: [...new Set(e.frases.map((f) => f.trim()))] } : {}),
+          ...(e.eventosExtras ? { eventosExtras: [...new Set(e.eventosExtras.map((x) => x.trim()))] } : {}),
           ...(e.valorPadrao !== undefined ? { valorPadrao: e.tipo === 'venda' && e.valorPadrao != null ? new Prisma.Decimal(e.valorPadrao.toFixed(2)) : null } : {}),
           botaoAtendente: e.botaoAtendente ?? true,
           noPainel: e.noPainel ?? true,

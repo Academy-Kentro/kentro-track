@@ -105,6 +105,7 @@ describe('API de Conversões', () => {
     expect((await config({ ativo: true })).body.erro.codigo).toBe('PIXEL_OBRIGATORIO');
     const salvo = await ligar({ token: 'EAAPIXEL' + 'z'.repeat(30), wabaId: '1234567', mapeamento: { descartado: 'LeadPerdido' } });
     expect(salvo).toEqual({
+      enviarOrganicos: false,
       ativo: true,
       datasetId: '555666777',
       datasetNome: 'Pixel Loja',

@@ -95,10 +95,29 @@ export class FiltroLeadsDto extends FiltroDto {
   @IsOptional()
   @IsIn(['1'])
   aguardando?: string;
+
+  @IsOptional()
+  @IsUUID()
+  link?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 300)
+  utmSource?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 300)
+  utmMedium?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 300)
+  utmCampaign?: string;
 }
 
 export class ExportarLeadsDto extends FiltroLeadsDto {
-  @IsIn(['leads', 'vendas', 'jornada'])
+  @IsIn(['leads', 'vendas', 'jornada', 'google_offline'])
   tipo!: TipoExportacao;
 }
 
@@ -135,6 +154,11 @@ export class PainelController {
   @Get('leads')
   leads(@Req() req: RequisicaoDaConta, @Query() filtro: FiltroLeadsDto) {
     return this.painel.leads(req.conta.id, filtro);
+  }
+
+  @Get('primeiros-passos')
+  primeirosPassos(@Req() req: RequisicaoDaConta) {
+    return this.painel.primeirosPassos(req.conta.id);
   }
 
   @Get('leads/quadro')

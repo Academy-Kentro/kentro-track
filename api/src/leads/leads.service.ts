@@ -8,6 +8,8 @@ import { ErroApi } from '../comum/erros';
 import { PrismaService } from '../comum/prisma.service';
 import { etapaPublica, EtapasService } from '../etapas/etapas.service';
 import { PainelService } from '../painel/painel.service';
+import { lerCodigo } from '../links/codigo';
+import { EventoWebhook, WebhooksService } from '../webhooks/webhooks.service';
 import { etapaDaFrase, valorDaMensagem } from './frases';
 import { mascararTelefone, normalizarTelefone } from './telefone';
 
@@ -102,8 +104,18 @@ export class LeadsService {
     private readonly painel: PainelService,
     private readonly capi: CapiService,
     private readonly etapas: EtapasService,
+    private readonly webhooks: WebhooksService,
     @Inject(CONFIG_APP) private readonly config: ConfigApp,
   ) {}
+
+  /** Como o evento do pixel, falha aqui nunca derruba o atendimento. */
+  private async avisarWebhooks(lead: Lead, evento: EventoWebhook): Promise<void> {
+    try {
+      await this.webhooks.emitir(lead, evento);
+    } catch (e) {
+      this.logger.error(`Webhook ${evento} do lead ${lead.id}: ${e instanceof Error ? e.message : e}`);
+    }
+  }
 
   /** Evento para o pixel: falha aqui nunca derruba o atendimento (o lead já foi gravado). */
   private async avisarMeta(lead: Lead, gatilhos: Gatilho[]): Promise<void> {
@@ -215,7 +227,10 @@ export class LeadsService {
       const atualizado = await this.prisma.lead.update({ where: { id: existente.id }, data: dadosNovos });
       if (dadosNovos.atendidoEm) await this.evento(existente.id, 'atendido', `Atendimento aberto${autor.nome ? ` por ${autor.nome}` : ''}.`, autor);
       // Só agora se soube que veio de anúncio: o "lead recebido" sai agora.
-      if (dadosNovos.origem === 'ctwa') await this.avisarMeta(atualizado, ['lead_recebido']);
+      if (dadosNovos.origem === 'ctwa') {
+        await this.avisarMeta(atualizado, ['lead_recebido']);
+        await this.avisarWebhooks(atualizado, 'lead_source_update');
+      }
       return atualizado;
     }
 
@@ -262,6 +277,7 @@ export class LeadsService {
         autor,
       );
       await this.avisarMeta(lead, ['lead_recebido']);
+      await this.avisarWebhooks(lead, 'lead_create');
       return lead;
     } catch (erro) {
       // Painel e automação chegaram juntos: o outro criou primeiro.
@@ -313,12 +329,14 @@ export class LeadsService {
       if (conversa) {
         const lead = await this.prisma.lead.update({ where: { id: conversa.id }, data: { ...dados, nome: conversa.nome ?? limpo(f.nome) ?? null } });
         await this.evento(lead.id, 'formulario', `${texto} A conversa no WhatsApp passou a ser deste formulário.`, { tipo: 'sistema' });
+        await this.avisarWebhooks(lead, 'lead_source_update');
         return lead;
       }
       const lead = await this.prisma.lead.create({
         data: { contaId, ...dados, nome: limpo(f.nome) ?? null, telefone: fone?.telefone ?? null, telefoneChave: fone?.chave ?? null, recebidoEm: f.criadoEm },
       });
       await this.evento(lead.id, 'recebido', texto, { tipo: 'sistema' });
+      await this.avisarWebhooks(lead, 'lead_create');
       return lead;
     } catch (erro) {
       // Duas leituras do mesmo formulário ao mesmo tempo: a outra gravou primeiro.
@@ -413,6 +431,7 @@ export class LeadsService {
         }
       }
     }
+    await this.avisarWebhooks(atualizado, 'lead_update');
     return atualizado;
   }
 
@@ -491,10 +510,11 @@ export class LeadsService {
   async registrarMensagem(contaId: string, dados: Atendimento, direcao: string, texto: string, autor: Autor): Promise<Lead | null> {
     if (direcao !== 'in' && direcao !== 'out') return null;
     const lead = await this.registrarAtendimento(contaId, dados, autor, false);
+    void this.webhooks.entregarMensagem(lead, direcao, texto).catch(() => undefined);
     if (direcao === 'in') {
       await this.prisma.$executeRaw`
         UPDATE leads SET ultima_mensagem_em = now() AT TIME ZONE 'UTC', ultima_mensagem_lead_em = now() AT TIME ZONE 'UTC' WHERE id = ${lead.id}::uuid`;
-      return lead;
+      return this.ligarVisita(contaId, lead, texto);
     }
     // Numa instrução só: duas mensagens seguidas do atendente não podem disputar quem é a primeira.
     await this.prisma.$executeRaw`
@@ -507,6 +527,47 @@ export class LeadsService {
       WHERE id = ${lead.id}::uuid`;
     const atual = await this.porId(contaId, lead.id);
     return this.aplicarFrase(contaId, atual, texto);
+  }
+
+  /**
+   * A mensagem do cliente trouxe o código de uma visita a um link rastreável: a conversa passa a ser
+   * dessa visita. Vale a primeira: conversa que já tem link não troca de origem.
+   */
+  async ligarVisita(contaId: string, lead: Lead, texto: string | undefined): Promise<Lead> {
+    const codigo = texto ? lerCodigo(texto) : null;
+    if (!codigo || lead.linkId) return lead;
+    const visita = await this.prisma.visitaLink.findUnique({ where: { contaId_codigo: { contaId, codigo } }, include: { link: { select: { nome: true } } } });
+    if (!visita) return lead;
+    const achado = visita.anuncioIdMeta && !lead.anuncioIdMeta ? await this.resolverAnuncio(contaId, { idAnuncio: visita.anuncioIdMeta }) : null;
+    const novaOrigem = lead.origem === 'organico';
+    const atualizado = await this.prisma.lead.update({
+      where: { id: lead.id },
+      data: {
+        linkId: visita.linkId,
+        utmSource: visita.utmSource,
+        utmMedium: visita.utmMedium,
+        utmCampaign: visita.utmCampaign,
+        utmContent: visita.utmContent,
+        utmTerm: visita.utmTerm,
+        gclid: visita.gclid,
+        gbraid: visita.gbraid,
+        wbraid: visita.wbraid,
+        fbclid: visita.fbclid,
+        ...(novaOrigem ? { origem: 'link' as const } : {}),
+        ...(achado ? { contaAnuncioId: achado.contaAnuncioId, campanhaIdMeta: achado.campanhaIdMeta, conjuntoIdMeta: achado.conjuntoIdMeta, anuncioIdMeta: achado.idMeta, vinculoAnuncio: achado.vinculo } : {}),
+      },
+    });
+    await this.evento(lead.id, 'link', `Chegou pelo link rastreável "${visita.link.nome}".`, { tipo: 'sistema' });
+    if (novaOrigem) {
+      await this.avisarMeta(atualizado, ['lead_recebido']);
+      await this.avisarWebhooks(atualizado, 'lead_source_update');
+    }
+    return atualizado;
+  }
+
+  /** A etapa como o Inspetor recebe da tela. */
+  async etapaDaConta(contaId: string, etapa: string): Promise<EtapaFunil> {
+    return this.etapas.resolver(contaId, etapa);
   }
 
   /** A frase só leva adiante: "seu orçamento" mandado depois da venda não desfaz a venda. Lead perdido pode voltar. */
@@ -537,6 +598,7 @@ export class LeadsService {
 
   /** O lead como o painel do atendente mostra: anúncio com nomes, miniatura, histórico e outras entradas. */
   async paraPainel(lead: Lead) {
+    const link = lead.linkId ? await this.prisma.linkRastreavel.findUnique({ where: { id: lead.linkId }, select: { nome: true } }) : null;
     const [anuncio, campanha, conjunto, eventos, outras, eventosMeta, etapas] = await Promise.all([
       lead.anuncioIdMeta && lead.contaAnuncioId
         ? this.prisma.anuncio.findUnique({ where: { contaAnuncioId_idMeta: { contaAnuncioId: lead.contaAnuncioId, idMeta: lead.anuncioIdMeta } } })
@@ -581,6 +643,7 @@ export class LeadsService {
       valorVenda: lead.valorVenda == null ? null : Number(lead.valorVenda),
       motivoDescarte: lead.motivoDescarte,
       respostas: lead.respostas,
+      link: link ? { nome: link.nome, utmSource: lead.utmSource, utmMedium: lead.utmMedium, utmCampaign: lead.utmCampaign } : null,
       anuncio:
         lead.origem === 'organico'
           ? null

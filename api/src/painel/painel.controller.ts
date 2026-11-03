@@ -3,7 +3,7 @@ import { Type } from 'class-transformer';
 import { ArrayMaxSize, IsArray, IsIn, IsInt, IsOptional, IsString, IsUUID, Length, Matches, Max, Min, ValidateNested } from 'class-validator';
 import { ChaveContaGuard, Papeis, RequisicaoDaConta } from '../contas/chave-conta.guard';
 import { AnalisesService } from './analises.service';
-import { MAX_ATENDENTES_POR_VEZ, PainelService } from './painel.service';
+import { MAX_ATENDENTES_POR_VEZ, PainelService, TipoExportacao } from './painel.service';
 
 export class AtendenteDoChatDto {
   @Matches(/^\d{1,20}$/)
@@ -59,6 +59,42 @@ export class FiltroLeadsDto extends FiltroDto {
   @Min(1)
   @Max(200)
   pagina?: number;
+
+  /** Nome ou telefone. */
+  @IsOptional()
+  @IsString()
+  @Length(1, 120)
+  busca?: string;
+
+  @IsOptional()
+  @Matches(/^\d{1,40}$/)
+  conjunto?: string;
+
+  @IsOptional()
+  @Matches(/^\d{1,40}$/)
+  anuncio?: string;
+
+  /** Id do atendente na Kentro, ou "sem". */
+  @IsOptional()
+  @Matches(/^(sem|\d{1,20})$/)
+  atendente?: string;
+
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  vendaDe?: string;
+
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  vendaAte?: string;
+
+  @IsOptional()
+  @IsIn(['recentes', 'antigos', 'maior_venda', 'nome'])
+  ordem?: string;
+}
+
+export class ExportarLeadsDto extends FiltroLeadsDto {
+  @IsIn(['leads', 'vendas', 'jornada'])
+  tipo!: TipoExportacao;
 }
 
 /** Uma rota por aba: a extensão tem 30 chamadas por minuto no omni.http.request. */
@@ -94,6 +130,26 @@ export class PainelController {
   @Get('leads')
   leads(@Req() req: RequisicaoDaConta, @Query() filtro: FiltroLeadsDto) {
     return this.painel.leads(req.conta.id, filtro);
+  }
+
+  @Get('leads/quadro')
+  quadroDeLeads(@Req() req: RequisicaoDaConta, @Query() filtro: FiltroLeadsDto) {
+    return this.painel.quadroDeLeads(req.conta.id, filtro);
+  }
+
+  @Get('leads/opcoes')
+  opcoesDeLeads(@Req() req: RequisicaoDaConta, @Query() filtro: FiltroDto) {
+    return this.painel.opcoesDeLeads(req.conta.id, filtro);
+  }
+
+  @Get('leads/atualizacoes')
+  atualizacoesDeLeads(@Req() req: RequisicaoDaConta) {
+    return this.painel.atualizacoesDeLeads(req.conta.id);
+  }
+
+  @Get('leads/exportar')
+  exportarLeads(@Req() req: RequisicaoDaConta, @Query() { tipo, ...filtro }: ExportarLeadsDto) {
+    return this.painel.exportarLeads(req.conta.id, filtro, tipo);
   }
 
   /** O que a tela do gestor leu na Kentro sobre quem está com cada atendimento. */

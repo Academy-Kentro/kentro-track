@@ -8,7 +8,7 @@ import { ErroApi } from '../comum/erros';
 import { PrismaService } from '../comum/prisma.service';
 import { etapaPublica, EtapasService } from '../etapas/etapas.service';
 import { PainelService } from '../painel/painel.service';
-import { normalizarTelefone } from './telefone';
+import { mascararTelefone, normalizarTelefone } from './telefone';
 
 /** O anúncio como a extensão (campo `ad` da mensagem) ou a automação (message_ad_*) o descrevem. */
 export interface ResumoAnuncio {
@@ -28,10 +28,16 @@ export interface Atendimento {
 }
 
 export interface Autor {
-  tipo: 'atendente' | 'kentro' | 'sistema';
+  /** Gestor: mudou a etapa pelo painel de gestão, sem estar atendendo o lead. */
+  tipo: 'atendente' | 'gestor' | 'kentro' | 'sistema';
   id?: string;
   nome?: string;
 }
+
+/** Números que a tela de troca em lote confere de uma vez. */
+export const MAX_TELEFONES_LOTE = 500;
+/** Leads por chamada da troca em lote: a tela manda em partes para não estourar o tempo do proxy da Kentro. */
+export const MAX_LEADS_POR_CHAMADA = 50;
 
 /** Um lead de formulário (Lead Ads) como o Meta entrega, já com o texto de cada pergunta. */
 export interface LeadDeFormulario {
@@ -383,7 +389,8 @@ export class LeadsService {
         texto = `Marcado como ${etapa.nome.toLowerCase()}.`;
       }
     }
-    if (!lead.atendidoEm) Object.assign(dados, { atendidoEm: agora });
+    // O gestor mover o lead não é atendimento: não pode encurtar o "tempo até atender" da equipe.
+    if (!lead.atendidoEm && autor.tipo !== 'gestor') Object.assign(dados, { atendidoEm: agora });
     if (autor.tipo === 'atendente' && !lead.atendenteId) Object.assign(dados, { atendenteId: autor.id ?? null, atendenteNome: autor.nome ?? null });
 
     const atualizado = await this.prisma.$transaction(async (tx) => {
@@ -406,6 +413,73 @@ export class LeadsService {
       }
     }
     return atualizado;
+  }
+
+  /**
+   * Primeira fase da troca em lote: nada muda ainda. O mesmo telefone pode ter várias entradas;
+   * vale a mais recente, e a tela mostra quantas existem.
+   */
+  async conferirLote(contaId: string, telefones: string[]) {
+    const invalidos: string[] = [];
+    const chaves = new Map<string, string>();
+    for (const bruto of telefones) {
+      const n = normalizarTelefone(bruto);
+      if (!n) invalidos.push(bruto);
+      else if (!chaves.has(n.chave)) chaves.set(n.chave, bruto);
+    }
+    const [leads, etapas] = await Promise.all([
+      this.prisma.lead.findMany({ where: { contaId, telefoneChave: { in: [...chaves.keys()] } }, orderBy: { recebidoEm: 'desc' } }),
+      this.etapas.listar(contaId),
+    ]);
+    const nomeEtapa = new Map(etapas.map((e) => [e.id, e.nome]));
+    const entradas = new Map<string, Lead[]>();
+    for (const l of leads) entradas.set(l.telefoneChave!, [...(entradas.get(l.telefoneChave!) ?? []), l]);
+    return {
+      encontrados: [...entradas.values()].map((doNumero) => {
+        const l = doNumero[0]!;
+        return {
+          id: l.id,
+          nome: l.nome,
+          telefone: mascararTelefone(l.telefone),
+          etapaId: l.etapaId,
+          etapa: l.etapa,
+          etapaNome: l.etapaId ? nomeEtapa.get(l.etapaId) ?? null : null,
+          entradas: doNumero.length,
+        };
+      }),
+      naoEncontrados: [...chaves].filter(([chave]) => !entradas.has(chave)).map(([, bruto]) => bruto),
+      invalidos,
+    };
+  }
+
+  /** Aplica a etapa a cada lead: quem já está nela fica como está, e o erro de um não para os outros. */
+  async mudarEtapaEmLote(contaId: string, ids: string[], alvo: string, extra: { valor?: number; motivo?: string }, autor: Autor) {
+    // Etapa errada ou faltando valor/motivo falha aqui, com a mensagem certa, antes de tocar em qualquer lead.
+    let etapaId: string | null = null;
+    if (alvo !== 'em_atendimento') {
+      const etapa = await this.etapas.resolver(contaId, alvo);
+      etapaId = etapa.id;
+      if (etapa.tipo === 'venda' && (extra.valor == null || !Number.isFinite(extra.valor) || extra.valor < 0)) throw new ErroApi(400, 'VALOR_INVALIDO', 'Informe o valor da venda.');
+      if (etapa.tipo === 'perda' && !limpo(extra.motivo, 200)) throw new ErroApi(400, 'MOTIVO_OBRIGATORIO', 'Informe o motivo.');
+    }
+    const leads = await this.prisma.lead.findMany({ where: { contaId, id: { in: ids } } });
+    let alterados = 0;
+    let jaNaEtapa = 0;
+    const erros: { id: string; mensagem: string }[] = [];
+    for (const lead of leads) {
+      if (etapaId ? lead.etapaId === etapaId : lead.etapa === 'em_atendimento' && !lead.etapaId) {
+        jaNaEtapa++;
+        continue;
+      }
+      try {
+        await this.mudarEtapa(contaId, lead, alvo, extra, autor);
+        alterados++;
+      } catch (e) {
+        this.logger.error(`Troca em lote do lead ${lead.id}: ${e instanceof Error ? e.message : e}`);
+        erros.push({ id: lead.id, mensagem: e instanceof ErroApi ? e.message : 'Não foi possível alterar este lead.' });
+      }
+    }
+    return { alterados, jaNaEtapa, naoEncontrados: new Set(ids).size - leads.length, erros };
   }
 
   async porId(contaId: string, id: string): Promise<Lead> {

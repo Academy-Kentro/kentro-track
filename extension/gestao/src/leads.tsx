@@ -2,38 +2,16 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import type { Api } from '../../comum/api';
 import { Avatar, Aviso, Carregando, Vazio } from '../../comum/componentes';
 import { dinheiro, inteiro, percentual } from '../../comum/formato';
+import { Icone } from '../../comum/icones';
 import type { Omni } from '../../comum/omni';
 import { atendentesNaKentro, gravarAtendentes } from './atendentes';
 import { Seletor, type Carga } from './filtro';
-import type { EtapaFunil, TipoEtapa } from './tipos';
-
-/** Situação do lead (derivada da etapa do funil). */
-export type Etapa = 'novo' | 'em_atendimento' | 'qualificado' | 'venda' | 'descartado';
-
-export interface DadosLeads {
-  pagina: number;
-  temMais: boolean;
-  /** Por "novo", "em_atendimento" ou id da etapa do funil. */
-  porEtapa: Record<string, number>;
-  etapas?: EtapaFunil[];
-  itens: {
-    id: string;
-    origem: 'ctwa' | 'formulario' | 'link' | 'organico';
-    etapa: Etapa;
-    etapaId?: string | null;
-    etapaNome?: string | null;
-    etapaTipo?: TipoEtapa | null;
-    nome: string | null;
-    telefone: string | null;
-    chatId: string | null;
-    recebidoEm: string;
-    atendente: string | null;
-    valorVenda: number | null;
-    campanha: string | null;
-    anuncio: string | null;
-    vinculoAproximado: boolean;
-  }[];
-}
+import { CLASSE_TIPO, FILTRO_LEADS_PADRAO, filtrosAtivos, ORIGENS, SITUACOES, type DadosLeads, type Etapa, type FiltroLeads, type VisaoLeads } from './leads-comum';
+import { PainelFiltros, useFiltrosSalvos } from './leads-filtros';
+import { TrocaEmLote } from './leads-lote';
+import { QuadroLeads } from './leads-quadro';
+import { PainelAtualizacoes, PainelExportar } from './leads-relatorios';
+import type { TipoEtapa } from './tipos';
 
 export interface DadosEquipe {
   moeda: string;
@@ -56,28 +34,10 @@ export interface DadosEquipe {
   semAtendente?: string[];
 }
 
-export interface FiltroLeads {
-  origem: '' | 'ctwa' | 'formulario' | 'link' | 'organico';
-  /** "novo", "em_atendimento" ou o id da etapa do funil. */
-  etapa: string;
-  pagina: number;
-}
-
-/** Antes de qualquer etapa do funil. */
-const SITUACOES: { id: string; rotulo: string; classe: string }[] = [
-  { id: 'novo', rotulo: 'Novos', classe: 'novo' },
-  { id: 'em_atendimento', rotulo: 'Em atendimento', classe: 'em_atendimento' },
-];
-
-/** A cor da etapa vem do tipo: andamento como qualificado, venda verde, perda vermelha. */
-export const CLASSE_TIPO: Record<TipoEtapa, Etapa> = { andamento: 'qualificado', venda: 'venda', perda: 'descartado' };
-
-const ORIGENS: { id: FiltroLeads['origem']; rotulo: string }[] = [
-  { id: '', rotulo: 'Todas as origens' },
-  { id: 'ctwa', rotulo: 'Anúncio (WhatsApp)' },
-  { id: 'formulario', rotulo: 'Formulário' },
-  { id: 'link', rotulo: 'Link rastreável' },
-  { id: 'organico', rotulo: 'Sem anúncio' },
+const VISOES: { id: VisaoLeads; rotulo: string }[] = [
+  { id: 'lista', rotulo: 'Lista' },
+  { id: 'colunas', rotulo: 'Colunas' },
+  { id: 'lote', rotulo: 'Troca em lote' },
 ];
 
 const ETAPA_ROTULO: Record<Etapa, string> = { novo: 'Novo', em_atendimento: 'Em atendimento', qualificado: 'Qualificado', venda: 'Venda', descartado: 'Descartado' };
@@ -104,12 +64,147 @@ function useAtendentesAtuais(omni: Omni, api: Api, itens: DadosLeads['itens'] | 
   return nomes;
 }
 
-export function Leads({ omni, api, carga, filtro, mudar }: { omni: Omni; api: Api; carga: Carga<DadosLeads>; filtro: FiltroLeads; mudar: (f: FiltroLeads) => void }) {
+/** Visão, busca e os painéis de filtros, exportação e atualizações, acima da lista e das colunas. */
+function Ferramentas({
+  omni,
+  api,
+  q,
+  filtro,
+  mudar,
+  visao,
+  mudarVisao,
+}: {
+  omni: Omni;
+  api: Api;
+  q: string;
+  filtro: FiltroLeads;
+  mudar: (f: FiltroLeads) => void;
+  visao: VisaoLeads;
+  mudarVisao: (v: VisaoLeads) => void;
+}) {
+  const [aberto, setAberto] = useState<'' | 'filtros' | 'exportar' | 'atualizacoes'>('');
+  const [busca, setBusca] = useState(filtro.busca ?? '');
+  const { salvos, salvar, remover } = useFiltrosSalvos(omni);
+  useEffect(() => setBusca(filtro.busca ?? ''), [filtro.busca]);
+
+  const alternar = (p: typeof aberto) => setAberto(aberto === p ? '' : p);
+  const ativos = filtrosAtivos(filtro);
+  const temFiltro = ativos > 0 || !!filtro.busca || !!filtro.origem || !!filtro.etapa;
+  return (
+    <>
+      <div class="kt-leads-ferramentas">
+        <div class="kt-segmento" role="group" aria-label="Visualização">
+          {VISOES.map((v) => (
+            <button key={v.id} type="button" aria-pressed={visao === v.id} onClick={() => mudarVisao(v.id)}>
+              {v.rotulo}
+            </button>
+          ))}
+        </div>
+        {visao !== 'lote' && (
+          <>
+            <form
+              class="kt-busca"
+              role="search"
+              onSubmit={(e) => {
+                e.preventDefault();
+                mudar({ ...filtro, busca: busca.trim() || undefined, pagina: 1 });
+              }}
+            >
+              <input type="search" aria-label="Buscar por nome ou telefone" placeholder="Nome ou telefone" maxLength={120} value={busca} onInput={(e) => setBusca((e.target as HTMLInputElement).value)} />
+              <button type="submit" class="kt-botao kt-botao-fantasma kt-botao-pequeno">
+                Buscar
+              </button>
+            </form>
+            <Seletor icone="funil" rotulo="Origem" valor={filtro.origem} mudar={(v) => mudar({ ...filtro, origem: v as FiltroLeads['origem'], pagina: 1 })}>
+              {ORIGENS.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.rotulo}
+                </option>
+              ))}
+            </Seletor>
+            <button type="button" class="kt-botao kt-botao-fantasma kt-botao-pequeno" aria-expanded={aberto === 'filtros'} onClick={() => alternar('filtros')}>
+              Filtros{ativos > 0 && ` (${ativos})`}
+            </button>
+            <button type="button" class="kt-botao kt-botao-fantasma kt-botao-pequeno" aria-expanded={aberto === 'exportar'} onClick={() => alternar('exportar')}>
+              Exportar
+            </button>
+            <button type="button" class="kt-botao kt-botao-fantasma kt-botao-pequeno" aria-expanded={aberto === 'atualizacoes'} onClick={() => alternar('atualizacoes')}>
+              Últimas atualizações
+            </button>
+            {temFiltro && (
+              <button type="button" class="kt-link" onClick={() => mudar(FILTRO_LEADS_PADRAO)}>
+                Limpar filtros
+              </button>
+            )}
+          </>
+        )}
+      </div>
+      {visao !== 'lote' && salvos.length > 0 && (
+        <div class="kt-filtros-salvos" role="group" aria-label="Filtros salvos">
+          <span class="kt-muted">Filtros salvos:</span>
+          {salvos.map((s) => (
+            <span key={s.nome} class="kt-filtro-salvo">
+              <button type="button" class="kt-link" onClick={() => mudar({ ...FILTRO_LEADS_PADRAO, ...s.filtro, pagina: 1 })}>
+                {s.nome}
+              </button>
+              <button type="button" class="kt-filtro-salvo-remover" aria-label={`Remover o filtro ${s.nome}`} onClick={() => remover(s.nome)}>
+                <Icone nome="fechar" tamanho={12} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      {visao !== 'lote' && aberto === 'filtros' && <PainelFiltros key={JSON.stringify(filtro)} api={api} q={q} filtro={filtro} mudar={mudar} salvar={salvar} fechar={() => setAberto('')} />}
+      {visao !== 'lote' && aberto === 'exportar' && <PainelExportar api={api} q={q} filtro={filtro} />}
+      {visao !== 'lote' && aberto === 'atualizacoes' && <PainelAtualizacoes api={api} />}
+    </>
+  );
+}
+
+export function Leads({
+  omni,
+  api,
+  q,
+  carga,
+  filtro,
+  mudar,
+  visao,
+  mudarVisao,
+}: {
+  omni: Omni;
+  api: Api;
+  /** O período e a campanha da barra de cima. */
+  q: string;
+  carga: Carga<DadosLeads>;
+  filtro: FiltroLeads;
+  mudar: (f: FiltroLeads) => void;
+  visao: VisaoLeads;
+  mudarVisao: (v: VisaoLeads) => void;
+}) {
   const { dados, erro, carregando } = carga;
-  const atuais = useAtendentesAtuais(omni, api, dados?.itens);
+  const atuais = useAtendentesAtuais(omni, api, visao === 'lista' ? dados?.itens : undefined);
+  const ferramentas = <Ferramentas omni={omni} api={api} q={q} filtro={filtro} mudar={mudar} visao={visao} mudarVisao={mudarVisao} />;
+
+  if (visao === 'colunas') {
+    return (
+      <div>
+        {ferramentas}
+        <QuadroLeads api={api} q={q} filtro={filtro} />
+      </div>
+    );
+  }
+  if (visao === 'lote') {
+    return (
+      <div>
+        {ferramentas}
+        {dados ? <TrocaEmLote api={api} etapas={dados.etapas ?? []} aoConcluir={() => carga.recarregar?.()} /> : erro ? <Aviso tipo="erro">{erro}</Aviso> : <Carregando />}
+      </div>
+    );
+  }
 
   return (
     <div class={carregando ? 'kt-recarregando' : ''}>
+      {ferramentas}
       <div class="kt-barra-leads">
         {dados && (
           <div class="kt-chips" role="group" aria-label="Etapa">
@@ -126,13 +221,6 @@ export function Leads({ omni, api, carga, filtro, mudar }: { omni: Omni; api: Ap
             ))}
           </div>
         )}
-        <Seletor icone="funil" rotulo="Origem" valor={filtro.origem} mudar={(v) => mudar({ ...filtro, origem: v as FiltroLeads['origem'], pagina: 1 })}>
-          {ORIGENS.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.rotulo}
-            </option>
-          ))}
-        </Seletor>
       </div>
       {erro && <Aviso tipo="erro">{erro}</Aviso>}
       {!dados ? (

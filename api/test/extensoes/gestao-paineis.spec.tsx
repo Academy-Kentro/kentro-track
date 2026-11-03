@@ -425,6 +425,281 @@ describe('gestão: funil do atendimento, leads, equipe e integração', () => {
     expect(botao('Abrir conversa')).toBeUndefined();
   });
 
+  describe('aba Leads: ferramentas', () => {
+    const ETAPAS = [
+      { id: 'e-agendou', chave: 'agendou', nome: 'Agendou', tipo: 'andamento', ordem: 1, qualificada: true, eventoMeta: null, botaoAtendente: true, noPainel: true, ativa: true },
+      { id: 'e-vendeu', chave: 'venda', nome: 'Vendeu', tipo: 'venda', ordem: 2, qualificada: false, eventoMeta: 'Purchase', botaoAtendente: true, noPainel: true, ativa: true },
+      { id: 'e-oculta', chave: 'oculta', nome: 'Oculta', tipo: 'andamento', ordem: 3, qualificada: false, eventoMeta: null, botaoAtendente: true, noPainel: false, ativa: true },
+    ];
+    const COM_ETAPAS = { ...LEADS, etapas: ETAPAS };
+    const ROTAS = { '/v1/conta': CONTA, '/v1/painel/filtros': FILTROS, '/v1/painel/leads': COM_ETAPAS };
+    const OPCOES = { conjuntos: [{ id: '200', nome: 'Quente' }], anuncios: [{ id: '300', nome: 'Vídeo' }], atendentes: [{ id: '7', nome: 'Ana' }] };
+    const QUADRO = {
+      etapas: ETAPAS,
+      cartoesPorColuna: 30,
+      porEtapa: { novo: 40, 'e-agendou': 1, 'e-oculta': 2 },
+      itens: [{ ...LEADS.itens[0], etapa: 'qualificado', etapaId: 'e-agendou', etapaNome: 'Agendou', etapaTipo: 'andamento', valorVenda: null }, LEADS.itens[1]],
+    };
+    const ultima = (falso: { chamadas: ChamadaHttp[] }, trecho: string) => falso.chamadas.filter((c) => c.url.includes(trecho)).at(-1)!;
+    const parametro = (c: ChamadaHttp, nome: string) => new URL(c.url).searchParams.get(nome);
+    async function digitar(el: Element | null | undefined, valor: string, evento = 'input') {
+      await act(async () => {
+        (el as HTMLInputElement).value = valor;
+        el!.dispatchEvent(new Event(evento, { bubbles: true }));
+      });
+      await assentar(act);
+    }
+    const campo = (rotulo: string) => [...raiz.querySelectorAll('label.kt-campo')].find((l) => l.textContent?.includes(rotulo))?.querySelector('input, select, textarea');
+    async function abrirLeads(rotas: Record<string, unknown> = ROTAS) {
+      const falso = await montar({ http: api(rotas) });
+      await clicar(botao('Leads'));
+      return falso;
+    }
+
+    it('a busca só consulta ao enviar e o limpar volta tudo', async () => {
+      const falso = await abrirLeads();
+      const chamadas = falso.chamadas.length;
+      const campoBusca = raiz.querySelector('.kt-busca input');
+      await digitar(campoBusca, 'Maria');
+      expect(falso.chamadas).toHaveLength(chamadas);
+      await act(async () => {
+        raiz.querySelector('.kt-busca')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      });
+      await assentar(act);
+      expect(parametro(ultima(falso, '/v1/painel/leads?'), 'busca')).toBe('Maria');
+      await clicar(botao('Limpar filtros'));
+      expect(parametro(ultima(falso, '/v1/painel/leads?'), 'busca')).toBeNull();
+      expect((raiz.querySelector('.kt-busca input') as HTMLInputElement).value).toBe('');
+    });
+
+    it('filtros: as opções só carregam ao abrir, valem ao aplicar e o botão conta quantos estão ligados', async () => {
+      const falso = await abrirLeads({ ...ROTAS, '/v1/painel/leads/opcoes': OPCOES });
+      expect(falso.chamadas.some((c) => c.url.includes('/leads/opcoes'))).toBe(false);
+      await clicar(botao('Filtros'));
+      expect(falso.chamadas.some((c) => c.url.includes('/leads/opcoes'))).toBe(true);
+      await digitar(campo('Conjunto'), '200', 'change');
+      await digitar(campo('Atendente'), 'sem', 'change');
+      await digitar(campo('Ordenar'), 'maior_venda', 'change');
+      expect(parametro(ultima(falso, '/v1/painel/leads?'), 'conjunto')).toBeNull();
+      await clicar(botao('Aplicar'));
+      const pedido = ultima(falso, '/v1/painel/leads?');
+      expect(parametro(pedido, 'conjunto')).toBe('200');
+      expect(parametro(pedido, 'atendente')).toBe('sem');
+      expect(parametro(pedido, 'ordem')).toBe('maior_venda');
+      expect(botao('Filtros')!.textContent).toContain('(3)');
+    });
+
+    it('filtro salvo: guarda, aplica depois de limpar e remove', async () => {
+      const falso = await abrirLeads({ ...ROTAS, '/v1/painel/leads/opcoes': OPCOES });
+      await clicar(botao('Filtros'));
+      await digitar(campo('Anúncio'), '300', 'change');
+      await digitar(raiz.querySelector('.kt-filtro-salvar input'), 'Só o vídeo');
+      await clicar(botao('Salvar filtro'));
+      expect(await falso.omni.storage.get('filtros-leads')).toEqual([{ nome: 'Só o vídeo', filtro: expect.objectContaining({ anuncio: '300', pagina: 1 }) }]);
+
+      await clicar(botao('Só o vídeo'));
+      expect(parametro(ultima(falso, '/v1/painel/leads?'), 'anuncio')).toBe('300');
+
+      await clicar(raiz.querySelector('.kt-filtro-salvo-remover')!);
+      expect(raiz.querySelector('.kt-filtros-salvos')).toBeNull();
+      expect(await falso.omni.storage.get('filtros-leads')).toEqual([]);
+    });
+
+    it('colunas: uma por etapa visível, com o total real e sem buscar a lista à toa', async () => {
+      const falso = await abrirLeads({ ...ROTAS, '/v1/painel/leads/quadro': QUADRO });
+      const listas = falso.chamadas.filter((c) => new URL(c.url).pathname === '/v1/painel/leads').length;
+      await clicar(botao('Colunas'));
+      expect(falso.chamadas.filter((c) => new URL(c.url).pathname === '/v1/painel/leads')).toHaveLength(listas);
+      const colunas = [...raiz.querySelectorAll('.kt-coluna')];
+      expect(colunas.map((c) => c.querySelector('.kt-etapa')!.textContent)).toEqual(['Novos', 'Em atendimento', 'Agendou', 'Vendeu']);
+      expect(colunas[0]!.textContent).toContain('Mostrando os 1 mais recentes de 40.');
+      expect(colunas[2]!.textContent).toContain('Maria');
+      expect(texto()).toContain('2 leads estão em etapas que não aparecem no painel.');
+    });
+
+    it('colunas: mover para etapa comum vai direto; para venda pede o valor antes', async () => {
+      const falso = await abrirLeads({ ...ROTAS, '/v1/painel/leads/quadro': QUADRO, '/v1/painel/leads/l2/etapa': { id: 'l2' } });
+      await clicar(botao('Colunas'));
+      const selecao = () => raiz.querySelectorAll('.kt-coluna')[0]!.querySelector('.kt-cartao-mover');
+      // "Novos" não é destino: lead não volta a ser novo pelo painel.
+      expect([...selecao()!.querySelectorAll('option')].map((o) => o.textContent)).toEqual(['Mover para…', 'Em atendimento', 'Agendou', 'Vendeu']);
+
+      await digitar(selecao(), 'e-agendou', 'change');
+      expect(ultima(falso, '/l2/etapa')).toMatchObject({ method: 'POST', corpo: { etapa: 'e-agendou' } });
+      const movidas = falso.chamadas.filter((c) => c.url.includes('/l2/etapa')).length;
+
+      await digitar(selecao(), 'e-vendeu', 'change');
+      expect(falso.chamadas.filter((c) => c.url.includes('/l2/etapa'))).toHaveLength(movidas);
+      expect(botao('Confirmar')!.hasAttribute('disabled')).toBe(true);
+      await digitar(campo('Valor da venda'), '1.234,50');
+      await clicar(botao('Confirmar'));
+      expect(ultima(falso, '/l2/etapa').corpo).toEqual({ etapa: 'e-vendeu', valor: 1234.5 });
+      expect(raiz.querySelector('.kt-mover-lead')).toBeNull();
+    });
+
+    it('colunas: arrastar o cartão para outra coluna move; soltar em "Novos" não faz nada', async () => {
+      const falso = await abrirLeads({ ...ROTAS, '/v1/painel/leads/quadro': QUADRO, '/v1/painel/leads/l2/etapa': { id: 'l2' } });
+      await clicar(botao('Colunas'));
+      const arrastar = async (destino: number) => {
+        const cartao = raiz.querySelectorAll('.kt-coluna')[0]!.querySelector('.kt-cartao-lead')!;
+        await act(async () => {
+          cartao.dispatchEvent(new Event('dragstart', { bubbles: true }));
+          raiz.querySelectorAll('.kt-coluna')[destino]!.dispatchEvent(new Event('drop', { bubbles: true, cancelable: true }));
+        });
+        await assentar(act);
+      };
+      await arrastar(0);
+      expect(falso.chamadas.some((c) => c.url.includes('/l2/etapa'))).toBe(false);
+      await arrastar(1);
+      expect(ultima(falso, '/l2/etapa').corpo).toEqual({ etapa: 'em_atendimento' });
+    });
+
+    it('colunas: mostra o erro da API e continua na tela', async () => {
+      const falso = await montar({
+        http: (c) => {
+          const caminho = new URL(c.url).pathname;
+          if (caminho.endsWith('/etapa')) return erro(400, 'VALOR_INVALIDO', 'Informe o valor da venda.');
+          return api({ ...ROTAS, '/v1/painel/leads/quadro': QUADRO })(c);
+        },
+      });
+      await clicar(botao('Leads'));
+      await clicar(botao('Colunas'));
+      await digitar(raiz.querySelectorAll('.kt-coluna')[0]!.querySelector('.kt-cartao-mover'), 'em_atendimento', 'change');
+      expect(falso.chamadas.some((c) => c.url.endsWith('/etapa'))).toBe(true);
+      expect(raiz.querySelector('.kt-aviso-erro')?.textContent).toContain('Informe o valor da venda.');
+      expect(raiz.querySelector('.kt-quadro')).not.toBeNull();
+    });
+
+    const CONFERIDO = {
+      encontrados: [
+        { id: 'l1', nome: 'Maria', telefone: '(38) 9****-0000', etapaId: null, etapa: 'novo', etapaNome: null, entradas: 2 },
+        { id: 'l2', nome: null, telefone: '(31) 9****-1111', etapaId: 'e-agendou', etapa: 'qualificado', etapaNome: 'Agendou', entradas: 1 },
+      ],
+      naoEncontrados: ['11966660000'],
+      invalidos: ['abc'],
+    };
+
+    it('troca em lote: confere, mostra o que ficou de fora e só muda depois de confirmar', async () => {
+      const falso = await abrirLeads({
+        ...ROTAS,
+        '/v1/painel/leads/lote/conferir': CONFERIDO,
+        '/v1/painel/leads/lote/etapa': { alterados: 1, jaNaEtapa: 1, naoEncontrados: 0, erros: [] },
+      });
+      await clicar(botao('Troca em lote'));
+      expect(botao('Conferir números')!.hasAttribute('disabled')).toBe(true);
+      await digitar(campo('Números'), '38 99999-0000, 38 99999-0000\n31988881111;11966660000,abc');
+      await digitar(campo('Levar para'), 'e-agendou', 'change');
+      await clicar(botao('Conferir números'));
+      // Repetido sai antes de ir para a API.
+      expect(ultima(falso, '/lote/conferir').corpo).toEqual({ telefones: ['38 99999-0000', '31988881111', '11966660000', 'abc'] });
+      expect(texto()).toContain('2 leads encontrados');
+      expect(texto()).toContain('11966660000');
+      expect(texto()).toContain('Quem tem mais de uma entrada: muda só a mais recente.');
+      expect(falso.chamadas.some((c) => c.url.includes('/lote/etapa'))).toBe(false);
+
+      await clicar(botao('Continuar'));
+      expect(texto()).toContain('Levar 2 leads para Agendou');
+      expect(falso.chamadas.some((c) => c.url.includes('/lote/etapa'))).toBe(false);
+      await clicar(botao('Confirmar a troca'));
+      expect(ultima(falso, '/lote/etapa').corpo).toEqual({ leads: ['l1', 'l2'], etapa: 'e-agendou' });
+      expect(texto()).toContain('1 lead alterado, 1 já estava nesta etapa.');
+    });
+
+    it('troca em lote para venda: exige o valor, avisa o total e manda em partes de 50', async () => {
+      const encontrados = Array.from({ length: 120 }, (_, i) => ({ ...CONFERIDO.encontrados[0], id: `l${i}`, entradas: 1 }));
+      const falso = await abrirLeads({
+        ...ROTAS,
+        '/v1/painel/leads/lote/conferir': { encontrados, naoEncontrados: [], invalidos: [] },
+        '/v1/painel/leads/lote/etapa': { alterados: 1, jaNaEtapa: 0, naoEncontrados: 0, erros: [] },
+      });
+      await clicar(botao('Troca em lote'));
+      await digitar(campo('Números'), '38999990000');
+      await digitar(campo('Levar para'), 'e-vendeu', 'change');
+      expect(botao('Conferir números')!.hasAttribute('disabled')).toBe(true);
+      await digitar(campo('Valor da venda'), '100,50');
+      await clicar(botao('Conferir números'));
+      await clicar(botao('Continuar'));
+      expect(texto()).toContain(`A receita e o ROAS sobem ${dinheiro(12060).replace(/\s/g, ' ')} no total.`);
+      await clicar(botao('Confirmar a troca'));
+      const partes = falso.chamadas.filter((c) => c.url.includes('/lote/etapa'));
+      expect(partes.map((p) => (p.corpo as { leads: string[] }).leads.length)).toEqual([50, 50, 20]);
+      expect(partes[0]!.corpo).toMatchObject({ etapa: 'e-vendeu', valor: 100.5 });
+    });
+
+    it('troca em lote: se uma parte falhar, conta o que já foi alterado', async () => {
+      const encontrados = Array.from({ length: 60 }, (_, i) => ({ ...CONFERIDO.encontrados[0], id: `l${i}`, entradas: 1 }));
+      let partes = 0;
+      await montar({
+        http: (c) => {
+          if (c.url.includes('/lote/etapa')) return ++partes === 1 ? ok({ alterados: 50, jaNaEtapa: 0, naoEncontrados: 0, erros: [] }) : erro(500, 'FALHA', 'Falhou no meio.');
+          if (c.url.includes('/lote/conferir')) return ok({ encontrados, naoEncontrados: [], invalidos: [] });
+          return api(ROTAS)(c);
+        },
+      });
+      await clicar(botao('Leads'));
+      await clicar(botao('Troca em lote'));
+      await digitar(campo('Números'), '38999990000');
+      await digitar(campo('Levar para'), 'e-agendou', 'change');
+      await clicar(botao('Conferir números'));
+      await clicar(botao('Continuar'));
+      await clicar(botao('Confirmar a troca'));
+      expect(texto()).toContain('Falhou no meio. 50 leads já foram alterados antes da falha.');
+      expect(botao('Confirmar a troca')).toBeUndefined();
+    });
+
+    it('exportar: manda os filtros e o tipo, baixa o arquivo e oferece copiar', async () => {
+      const criar = jest.fn(() => 'blob:csv');
+      const revogar = jest.fn();
+      Object.assign(URL, { createObjectURL: criar, revokeObjectURL: revogar });
+      const clique = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+      try {
+        const falso = await abrirLeads({
+          ...ROTAS,
+          '/v1/painel/leads/exportar': { arquivo: 'vendas-x.csv', csv: '﻿a;b\r\n', linhas: 2, truncado: true },
+        });
+        await digitar(raiz.querySelector('.kt-leads-ferramentas .kt-select select'), 'ctwa', 'change');
+        await clicar(botao('Exportar'));
+        await digitar(raiz.querySelector('.kt-card .kt-select select'), 'vendas', 'change');
+        await clicar(botao('Gerar CSV'));
+        const pedido = ultima(falso, '/leads/exportar');
+        expect(parametro(pedido, 'tipo')).toBe('vendas');
+        expect(parametro(pedido, 'origem')).toBe('ctwa');
+        expect(parametro(pedido, 'pagina')).toBeNull();
+        expect(criar).toHaveBeenCalledTimes(1);
+        expect(clique).toHaveBeenCalledTimes(1);
+        expect(texto()).toContain('2 linhas em vendas-x.csv');
+        expect(texto()).toContain('cortado nas primeiras 2 linhas');
+        expect(botao('Copiar o conteúdo')).toBeDefined();
+      } finally {
+        clique.mockRestore();
+      }
+    });
+
+    it('exportar sem nada no período não tenta baixar', async () => {
+      const clique = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+      try {
+        await abrirLeads({ ...ROTAS, '/v1/painel/leads/exportar': { arquivo: 'x.csv', csv: '﻿a\r\n', linhas: 0, truncado: false } });
+        await clicar(botao('Exportar'));
+        await clicar(botao('Gerar CSV'));
+        expect(clique).not.toHaveBeenCalled();
+        expect(texto()).toContain('Nada para exportar');
+      } finally {
+        clique.mockRestore();
+      }
+    });
+
+    it('últimas atualizações: só busca ao abrir', async () => {
+      const falso = await abrirLeads({
+        ...ROTAS,
+        '/v1/painel/leads/atualizacoes': { itens: [{ id: '9', leadId: 'l1', nome: 'Maria', telefone: '(38) 9****-0000', texto: 'Marcado como agendou. (Gil)', autor: 'Gestor', em: '2026-10-10T16:00:00Z' }] },
+      });
+      expect(falso.chamadas.some((c) => c.url.includes('/leads/atualizacoes'))).toBe(false);
+      await clicar(botao('Últimas atualizações'));
+      expect(raiz.querySelector('.kt-atualizacoes')!.textContent).toContain('Marcado como agendou. (Gil)');
+      expect(raiz.querySelector('.kt-atualizacoes')!.textContent).toContain('Gestor');
+    });
+  });
+
   it('filtro de campanhas: ativas antes das pausadas', async () => {
     const campanhas = [
       { idMeta: '1', nome: 'Antiga', ativa: false, contaAnuncioId: FILTROS.contasAnuncio[0].id },

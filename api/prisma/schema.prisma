@@ -389,7 +389,7 @@ model EventoLead {
   leadId    String   @map("lead_id") @db.Uuid
   tipo      String
   texto     String
-  /// "meta", "kentro", "atendente" ou "sistema".
+  /// "meta", "kentro", "atendente", "gestor" ou "sistema".
   autor     String
   autorNome String?  @map("autor_nome")
   em        DateTime @default(now())

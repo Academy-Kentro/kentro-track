@@ -6,7 +6,8 @@ import { cadaDia, comoDia, diasEntre, ehDia, somarDias } from '../comum/datas';
 import { ErroApi } from '../comum/erros';
 import { PrismaService } from '../comum/prisma.service';
 import { etapaPublica, EtapasService } from '../etapas/etapas.service';
-import { mascararTelefone } from '../leads/telefone';
+import { mascararTelefone, normalizarTelefone } from '../leads/telefone';
+import { montarCsv, valorCsv } from './csv';
 import { calcular, Metricas, Somas, somar, somasDe, ZERO } from './metricas';
 
 export interface Filtro {
@@ -16,11 +17,44 @@ export interface Filtro {
   campanha?: string;
 }
 
+export interface FiltroLeads extends Filtro {
+  origem?: string;
+  etapa?: string;
+  pagina?: number;
+  busca?: string;
+  conjunto?: string;
+  anuncio?: string;
+  /** Id do atendente na Kentro, ou "sem". */
+  atendente?: string;
+  vendaDe?: string;
+  vendaAte?: string;
+  ordem?: string;
+}
+
+export type TipoExportacao = 'leads' | 'vendas' | 'jornada';
+
 const MAX_DIAS = 400;
 const MAX_ANUNCIOS = 2000;
 const MAX_CRIATIVOS = 60;
 /** Leads sem atendente que a tela consulta na Kentro de uma vez. */
 export const MAX_ATENDENTES_POR_VEZ = 100;
+/** Cartões por coluna do quadro de leads. */
+const CARTOES_POR_COLUNA = 30;
+const MAX_OPCOES_FILTRO = 200;
+const ULTIMAS_ATUALIZACOES = 10;
+/** O omni.http.request corta a resposta em 5 MB: este teto fica bem abaixo disso. */
+const MAX_LINHAS_EXPORTACAO = 5000;
+
+const ORDENS_LEADS: Record<string, Prisma.Sql> = {
+  recentes: Prisma.sql`l.recebido_em DESC`,
+  antigos: Prisma.sql`l.recebido_em ASC`,
+  maior_venda: Prisma.sql`l.valor_venda DESC NULLS LAST, l.recebido_em DESC`,
+  nome: Prisma.sql`l.nome ASC NULLS LAST, l.recebido_em DESC`,
+};
+
+const ROTULO_SITUACAO: Record<string, string> = { novo: 'Novo', em_atendimento: 'Em atendimento', qualificado: 'Qualificado', venda: 'Venda', descartado: 'Descartado' };
+const ROTULO_ORIGEM: Record<string, string> = { ctwa: 'Anúncio (WhatsApp)', formulario: 'Formulário', link: 'Link rastreável', organico: 'Sem anúncio' };
+const ROTULO_AUTOR: Record<string, string> = { atendente: 'Atendente', gestor: 'Gestor', kentro: 'Automação da Kentro', meta: 'Meta', sistema: 'Sistema' };
 
 /** Leads conforme a definição de cada conta de anúncio (formulário, conversa, site). */
 const SOMAS_SQL = Prisma.sql`
@@ -304,30 +338,83 @@ export class PainelService {
     };
   }
 
+  /** Os filtros da aba Leads, menos a etapa: as contagens por etapa respeitam todos os outros. */
+  private filtrosDeLeads(filtro: FiltroLeads, horaLocal: Escopo['horaLocal']): Prisma.Sql {
+    const partes: Prisma.Sql[] = [];
+    if (filtro.origem) partes.push(Prisma.sql`AND l.origem = ${filtro.origem}::"OrigemLead"`);
+    if (filtro.conjunto) partes.push(Prisma.sql`AND l.conjunto_id_meta = ${filtro.conjunto}`);
+    if (filtro.anuncio) partes.push(Prisma.sql`AND l.anuncio_id_meta = ${filtro.anuncio}`);
+    if (filtro.atendente) partes.push(filtro.atendente === 'sem' ? Prisma.sql`AND l.atendente_id IS NULL` : Prisma.sql`AND l.atendente_id = ${filtro.atendente}`);
+    if (filtro.vendaDe || filtro.vendaAte) {
+      partes.push(Prisma.sql`AND l.etapa = 'venda'`);
+      if (filtro.vendaDe) partes.push(Prisma.sql`AND ${horaLocal('venda_em')}::date >= ${filtro.vendaDe}::date`);
+      if (filtro.vendaAte) partes.push(Prisma.sql`AND ${horaLocal('venda_em')}::date <= ${filtro.vendaAte}::date`);
+    }
+    const busca = filtro.busca?.trim();
+    if (busca) {
+      const nome = `%${busca.replace(/[\\%_]/g, '\\$&')}%`;
+      const digitos = busca.replace(/\D/g, '');
+      // Número inteiro casa pela chave (com ou sem o nono dígito); pedaço de número, pelo que está gravado.
+      const chave = normalizarTelefone(busca)?.chave;
+      partes.push(Prisma.sql`AND (l.nome ILIKE ${nome}
+        ${digitos.length >= 4 ? Prisma.sql`OR l.telefone LIKE ${`%${digitos}%`}` : Prisma.empty}
+        ${chave ? Prisma.sql`OR l.telefone_chave = ${chave}` : Prisma.empty})`);
+    }
+    return partes.length ? Prisma.join(partes, ' ') : Prisma.empty;
+  }
+
+  /** "novo" e "em_atendimento" são as situações antes de qualquer etapa; o resto é o id da etapa. */
+  private filtroDeEtapa(etapa?: string): Prisma.Sql {
+    if (!etapa) return Prisma.empty;
+    return etapa === 'novo' || etapa === 'em_atendimento'
+      ? Prisma.sql`AND l.etapa_id IS NULL AND l.etapa = ${etapa}::"EtapaLead"`
+      : Prisma.sql`AND l.etapa_id = ${etapa}::uuid`;
+  }
+
+  private itemDeLead(l: LinhaLead, nomes: Map<string, { nome: string; tipo: string }>) {
+    return {
+      id: l.id,
+      origem: l.origem,
+      etapa: l.etapa,
+      etapaId: l.etapa_id,
+      etapaNome: l.etapa_id ? nomes.get(l.etapa_id)?.nome ?? null : null,
+      etapaTipo: l.etapa_id ? nomes.get(l.etapa_id)?.tipo ?? null : null,
+      nome: l.nome,
+      telefone: mascararTelefone(l.telefone),
+      chatId: l.chat_id,
+      recebidoEm: l.recebido_em,
+      atendidoEm: l.atendido_em,
+      atendente: l.atendente_nome,
+      valorVenda: l.valor_venda == null ? null : Number(l.valor_venda),
+      campanha: l.campanha,
+      anuncio: l.anuncio,
+      vinculoAproximado: l.vinculo_anuncio === 'url' || l.vinculo_anuncio === 'texto',
+    };
+  }
+
+  private async contarLeadsPorEtapa(onde: Prisma.Sql) {
+    const contagem = await this.prisma.$queryRaw<{ etapa: string; n: bigint }[]>`
+      SELECT COALESCE(l.etapa_id::text, l.etapa::text) AS etapa, COUNT(*) AS n FROM leads l WHERE ${onde}
+      GROUP BY 1`;
+    return Object.fromEntries(contagem.map((e) => [e.etapa, Number(e.n)]));
+  }
+
   /** Lista de leads do período (mais recentes primeiro), com a origem resolvida em nomes. */
-  async leads(contaId: string, filtro: Filtro & { origem?: string; etapa?: string; pagina?: number }) {
-    const { ondeLeads } = await this.escopo(contaId, filtro);
+  async leads(contaId: string, filtro: FiltroLeads) {
+    const { ondeLeads, horaLocal } = await this.escopo(contaId, filtro);
     const porPagina = 50;
     const pagina = Math.max(1, Math.min(200, filtro.pagina ?? 1));
-    const porOrigem = filtro.origem ? Prisma.sql`AND l.origem = ${filtro.origem}::"OrigemLead"` : Prisma.empty;
-    // "novo" e "em_atendimento" são as situações antes de qualquer etapa; o resto é o id da etapa.
-    const porEtapa = !filtro.etapa
-      ? Prisma.empty
-      : filtro.etapa === 'novo' || filtro.etapa === 'em_atendimento'
-        ? Prisma.sql`AND l.etapa_id IS NULL AND l.etapa = ${filtro.etapa}::"EtapaLead"`
-        : Prisma.sql`AND l.etapa_id = ${filtro.etapa}::uuid`;
+    const filtros = this.filtrosDeLeads(filtro, horaLocal);
+    const porEtapa = this.filtroDeEtapa(filtro.etapa);
     const linhas = await this.prisma.$queryRaw<LinhaLead[]>`
       SELECT l.id, l.origem, l.etapa, l.etapa_id::text AS etapa_id, l.nome, l.telefone, l.chat_id, l.recebido_em, l.atendido_em, l.atendente_nome,
              l.valor_venda, l.vinculo_anuncio, c.nome AS campanha, a.nome AS anuncio
       FROM leads l
       LEFT JOIN campanhas c ON c.conta_anuncio_id = l.conta_anuncio_id AND c.id_meta = l.campanha_id_meta
       LEFT JOIN anuncios a ON a.conta_anuncio_id = l.conta_anuncio_id AND a.id_meta = l.anuncio_id_meta
-      WHERE ${ondeLeads(filtro.de, filtro.ate, true)} ${porOrigem} ${porEtapa}
-      ORDER BY l.recebido_em DESC
+      WHERE ${ondeLeads(filtro.de, filtro.ate, true)} ${filtros} ${porEtapa}
+      ORDER BY ${ORDENS_LEADS[filtro.ordem ?? ''] ?? ORDENS_LEADS.recentes}
       LIMIT ${porPagina + 1} OFFSET ${(pagina - 1) * porPagina}`;
-    const contagem = await this.prisma.$queryRaw<{ etapa: string; n: bigint }[]>`
-      SELECT COALESCE(l.etapa_id::text, l.etapa::text) AS etapa, COUNT(*) AS n FROM leads l WHERE ${ondeLeads(filtro.de, filtro.ate, true)} ${porOrigem}
-      GROUP BY 1`;
     const etapas = await this.etapas.listar(contaId);
     const nomes = new Map(etapas.map((e) => [e.id, e]));
     return {
@@ -335,26 +422,141 @@ export class PainelService {
       /** Todas as etapas (a tela mostra como filtro as ativas e visíveis; as outras só dão nome ao lead). */
       etapas: etapas.map(etapaPublica),
       temMais: linhas.length > porPagina,
-      porEtapa: Object.fromEntries(contagem.map((e) => [e.etapa, Number(e.n)])),
-      itens: linhas.slice(0, porPagina).map((l) => ({
-        id: l.id,
-        origem: l.origem,
-        etapa: l.etapa,
-        etapaId: l.etapa_id,
-        etapaNome: l.etapa_id ? nomes.get(l.etapa_id)?.nome ?? null : null,
-        etapaTipo: l.etapa_id ? nomes.get(l.etapa_id)?.tipo ?? null : null,
-        nome: l.nome,
-        telefone: mascararTelefone(l.telefone),
-        chatId: l.chat_id,
-        recebidoEm: l.recebido_em,
-        atendidoEm: l.atendido_em,
-        atendente: l.atendente_nome,
-        valorVenda: l.valor_venda == null ? null : Number(l.valor_venda),
-        campanha: l.campanha,
-        anuncio: l.anuncio,
-        vinculoAproximado: l.vinculo_anuncio === 'url' || l.vinculo_anuncio === 'texto',
+      porEtapa: await this.contarLeadsPorEtapa(Prisma.sql`${ondeLeads(filtro.de, filtro.ate, true)} ${filtros}`),
+      itens: linhas.slice(0, porPagina).map((l) => this.itemDeLead(l, nomes)),
+    };
+  }
+
+  /** O quadro de colunas: os leads mais recentes de cada etapa e o total dela, numa chamada só. */
+  async quadroDeLeads(contaId: string, filtro: FiltroLeads) {
+    const { ondeLeads, horaLocal } = await this.escopo(contaId, filtro);
+    const onde = Prisma.sql`${ondeLeads(filtro.de, filtro.ate, true)} ${this.filtrosDeLeads(filtro, horaLocal)}`;
+    const linhas = await this.prisma.$queryRaw<LinhaLead[]>`
+      WITH numerados AS (
+        SELECT l.*, ROW_NUMBER() OVER (PARTITION BY COALESCE(l.etapa_id::text, l.etapa::text) ORDER BY l.recebido_em DESC) AS posicao
+        FROM leads l WHERE ${onde}
+      )
+      SELECT l.id, l.origem, l.etapa, l.etapa_id::text AS etapa_id, l.nome, l.telefone, l.chat_id, l.recebido_em, l.atendido_em, l.atendente_nome,
+             l.valor_venda, l.vinculo_anuncio, c.nome AS campanha, a.nome AS anuncio
+      FROM numerados l
+      LEFT JOIN campanhas c ON c.conta_anuncio_id = l.conta_anuncio_id AND c.id_meta = l.campanha_id_meta
+      LEFT JOIN anuncios a ON a.conta_anuncio_id = l.conta_anuncio_id AND a.id_meta = l.anuncio_id_meta
+      WHERE l.posicao <= ${CARTOES_POR_COLUNA}
+      ORDER BY l.recebido_em DESC`;
+    const etapas = await this.etapas.listar(contaId);
+    const nomes = new Map(etapas.map((e) => [e.id, e]));
+    return {
+      etapas: etapas.map(etapaPublica),
+      cartoesPorColuna: CARTOES_POR_COLUNA,
+      porEtapa: await this.contarLeadsPorEtapa(onde),
+      itens: linhas.map((l) => this.itemDeLead(l, nomes)),
+    };
+  }
+
+  /** O que os filtros da aba Leads oferecem: só conjuntos, anúncios e atendentes que têm lead no período. */
+  async opcoesDeLeads(contaId: string, filtro: Filtro) {
+    const { ondeLeads } = await this.escopo(contaId, filtro);
+    const onde = ondeLeads(filtro.de, filtro.ate, true);
+    const [conjuntos, anuncios, atendentes] = await Promise.all([
+      this.prisma.$queryRaw<{ id: string; nome: string | null }[]>`
+        SELECT l.conjunto_id_meta AS id, MAX(c.nome) AS nome
+        FROM leads l LEFT JOIN conjuntos c ON c.conta_anuncio_id = l.conta_anuncio_id AND c.id_meta = l.conjunto_id_meta
+        WHERE ${onde} AND l.conjunto_id_meta IS NOT NULL
+        GROUP BY 1 ORDER BY 2 NULLS LAST LIMIT ${MAX_OPCOES_FILTRO}`,
+      this.prisma.$queryRaw<{ id: string; nome: string | null }[]>`
+        SELECT l.anuncio_id_meta AS id, MAX(a.nome) AS nome
+        FROM leads l LEFT JOIN anuncios a ON a.conta_anuncio_id = l.conta_anuncio_id AND a.id_meta = l.anuncio_id_meta
+        WHERE ${onde} AND l.anuncio_id_meta IS NOT NULL
+        GROUP BY 1 ORDER BY 2 NULLS LAST LIMIT ${MAX_OPCOES_FILTRO}`,
+      this.prisma.$queryRaw<{ id: string; nome: string | null }[]>`
+        SELECT l.atendente_id AS id, MAX(l.atendente_nome) AS nome
+        FROM leads l WHERE ${onde} AND l.atendente_id IS NOT NULL
+        GROUP BY 1 ORDER BY 2 NULLS LAST LIMIT ${MAX_OPCOES_FILTRO}`,
+    ]);
+    const comNome = (l: { id: string; nome: string | null }) => ({ id: l.id, nome: l.nome ?? `#${l.id}` });
+    return { conjuntos: conjuntos.map(comNome), anuncios: anuncios.map(comNome), atendentes: atendentes.map(comNome) };
+  }
+
+  /** As últimas mudanças de etapa da conta, de qualquer período. */
+  async atualizacoesDeLeads(contaId: string) {
+    const etapas = await this.etapas.listar(contaId);
+    const eventos = await this.prisma.eventoLead.findMany({
+      where: { lead: { contaId }, tipo: { in: ['em_atendimento', ...etapas.map((e) => e.chave)] } },
+      orderBy: [{ em: 'desc' }, { id: 'desc' }],
+      take: ULTIMAS_ATUALIZACOES,
+      include: { lead: { select: { id: true, nome: true, telefone: true } } },
+    });
+    return {
+      itens: eventos.map((e) => ({
+        id: String(e.id),
+        leadId: e.lead.id,
+        nome: e.lead.nome,
+        telefone: mascararTelefone(e.lead.telefone),
+        texto: e.texto,
+        autor: ROTULO_AUTOR[e.autor] ?? e.autor,
+        em: e.em,
       })),
     };
+  }
+
+  /** Relatório em CSV, devolvido no corpo: a extensão só fala com a API pelo omni.http.request. */
+  async exportarLeads(contaId: string, filtro: FiltroLeads, tipo: TipoExportacao) {
+    const { ondeLeads, filtroLeads, horaLocal, fuso } = await this.escopo(contaId, filtro);
+    const etapas = await this.etapas.listar(contaId);
+    const nomeEtapa = new Map(etapas.map((e) => [e.id, e.nome]));
+    const filtros = this.filtrosDeLeads(filtro, horaLocal);
+    const porEtapa = this.filtroDeEtapa(filtro.etapa);
+    const quando = (coluna: Prisma.Sql) => Prisma.sql`to_char(((${coluna} AT TIME ZONE 'UTC') AT TIME ZONE ${fuso}), 'DD/MM/YYYY HH24:MI')`;
+    let cabecalho: string[];
+    let linhas: (string | number | null)[][];
+
+    if (tipo === 'jornada') {
+      const tipos = ['em_atendimento', ...etapas.map((e) => e.chave)];
+      const eventos = await this.prisma.$queryRaw<{ em: string; nome: string | null; telefone: string | null; texto: string; autor: string }[]>`
+        SELECT ${quando(Prisma.sql`e.em`)} AS em, l.nome, l.telefone, e.texto, e.autor
+        FROM eventos_lead e JOIN leads l ON l.id = e.lead_id
+        WHERE ${filtroLeads(true)} ${filtros} ${porEtapa} AND e.tipo = ANY(${tipos}::text[])
+          AND ((e.em AT TIME ZONE 'UTC') AT TIME ZONE ${fuso})::date BETWEEN ${filtro.de}::date AND ${filtro.ate}::date
+        ORDER BY e.em DESC, e.id DESC
+        LIMIT ${MAX_LINHAS_EXPORTACAO + 1}`;
+      cabecalho = ['Data', 'Lead', 'Telefone', 'Mudança', 'Quem fez'];
+      linhas = eventos.map((e) => [e.em, e.nome, mascararTelefone(e.telefone), e.texto, ROTULO_AUTOR[e.autor] ?? e.autor]);
+    } else {
+      // Vendas: pelo dia da venda; leads: pelo dia em que o lead chegou.
+      const periodo =
+        tipo === 'vendas'
+          ? Prisma.sql`${filtroLeads(true)} AND l.etapa = 'venda' AND ${horaLocal('venda_em')}::date BETWEEN ${filtro.de}::date AND ${filtro.ate}::date`
+          : ondeLeads(filtro.de, filtro.ate, true);
+      const leads = await this.prisma.$queryRaw<Record<string, string | null>[]>`
+        SELECT ${quando(Prisma.sql`l.recebido_em`)} AS recebido, ${quando(Prisma.sql`l.venda_em`)} AS venda, l.nome, l.telefone, l.origem::text AS origem,
+               l.etapa::text AS etapa, l.etapa_id::text AS etapa_id, l.atendente_nome, l.valor_venda, l.motivo_descarte,
+               ca.nome AS campanha, co.nome AS conjunto, a.nome AS anuncio
+        FROM leads l
+        LEFT JOIN campanhas ca ON ca.conta_anuncio_id = l.conta_anuncio_id AND ca.id_meta = l.campanha_id_meta
+        LEFT JOIN conjuntos co ON co.conta_anuncio_id = l.conta_anuncio_id AND co.id_meta = l.conjunto_id_meta
+        LEFT JOIN anuncios a ON a.conta_anuncio_id = l.conta_anuncio_id AND a.id_meta = l.anuncio_id_meta
+        WHERE ${periodo} ${filtros} ${porEtapa}
+        ORDER BY ${tipo === 'vendas' ? Prisma.sql`l.venda_em DESC` : ORDENS_LEADS[filtro.ordem ?? ''] ?? ORDENS_LEADS.recentes}
+        LIMIT ${MAX_LINHAS_EXPORTACAO + 1}`;
+      cabecalho = ['Chegou em', 'Lead', 'Telefone', 'Origem', 'Campanha', 'Conjunto', 'Anúncio', 'Atendente', 'Etapa', 'Venda em', 'Valor da venda', 'Motivo do descarte'];
+      linhas = leads.map((l) => [
+        l.recebido,
+        l.nome,
+        mascararTelefone(l.telefone),
+        ROTULO_ORIGEM[l.origem ?? ''] ?? l.origem,
+        l.campanha,
+        l.conjunto,
+        l.anuncio,
+        l.atendente_nome,
+        (l.etapa_id && nomeEtapa.get(l.etapa_id)) || ROTULO_SITUACAO[l.etapa ?? ''] || l.etapa,
+        l.venda,
+        l.etapa === 'venda' ? valorCsv(l.valor_venda) : null,
+        l.motivo_descarte,
+      ]);
+    }
+    const truncado = linhas.length > MAX_LINHAS_EXPORTACAO;
+    const usadas = linhas.slice(0, MAX_LINHAS_EXPORTACAO);
+    return { arquivo: `${tipo}-${filtro.de}-a-${filtro.ate}.csv`, csv: montarCsv(cabecalho, usadas), linhas: usadas.length, truncado };
   }
 
   /**

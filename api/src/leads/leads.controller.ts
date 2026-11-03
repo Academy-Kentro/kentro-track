@@ -1,11 +1,11 @@
 import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
-import { IsNumber, IsObject, IsOptional, IsString, Length, Matches, Max, Min } from 'class-validator';
+import { ArrayMaxSize, ArrayNotEmpty, IsArray, IsNumber, IsObject, IsOptional, IsString, IsUUID, Length, Matches, Max, Min } from 'class-validator';
 import { ErroApi } from '../comum/erros';
 import { PrismaService } from '../comum/prisma.service';
 import { ChaveContaGuard, Papeis, RequisicaoDaConta } from '../contas/chave-conta.guard';
 import { EtapasService } from '../etapas/etapas.service';
-import { Autor, LeadsService } from './leads.service';
+import { Autor, LeadsService, MAX_LEADS_POR_CHAMADA, MAX_TELEFONES_LOTE } from './leads.service';
 
 export class VincularDto {
   @Matches(/^\d{1,20}$/)
@@ -63,6 +63,8 @@ export function atendenteDa(req: Request): Autor {
   return { tipo: 'atendente', id: id && /^\d{1,20}$/.test(id) ? id : undefined, nome: decodificar(req.header('X-Kentro-Usuario-Nome')) || undefined };
 }
 
+const gestorDa = (req: Request): Autor => ({ ...atendenteDa(req), tipo: 'gestor' });
+
 const uuid = new ParseUUIDPipe({ exceptionFactory: () => new ErroApi(404, 'NAO_ENCONTRADO', 'Lead não encontrado.') });
 
 /** Painel do atendente: a chave de atendimento (ou a de admin). */
@@ -95,6 +97,50 @@ export class AtendimentoController {
   }
 }
 
+
+export class ConferirLoteDto {
+  @IsArray()
+  @ArrayMaxSize(MAX_TELEFONES_LOTE)
+  @IsString({ each: true })
+  @Length(1, 40, { each: true })
+  telefones!: string[];
+}
+
+export class EtapaEmLoteDto extends EtapaDto {
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayMaxSize(MAX_LEADS_POR_CHAMADA)
+  @IsUUID(undefined, { each: true })
+  leads!: string[];
+}
+
+/** Painel de gestão movendo leads (quadro e troca em lote). O histórico registra o nome de quem fez como gestor. */
+@Controller('v1/painel/leads')
+@UseGuards(ChaveContaGuard)
+@Papeis('admin', 'gestor')
+export class GestaoLeadsController {
+  constructor(private readonly leads: LeadsService) {}
+
+  @Post('lote/conferir')
+  @HttpCode(200)
+  conferirLote(@Req() req: RequisicaoDaConta, @Body() dto: ConferirLoteDto) {
+    return this.leads.conferirLote(req.conta.id, dto.telefones);
+  }
+
+  @Post('lote/etapa')
+  @HttpCode(200)
+  etapaEmLote(@Req() req: RequisicaoDaConta, @Body() dto: EtapaEmLoteDto) {
+    return this.leads.mudarEtapaEmLote(req.conta.id, dto.leads, dto.etapa, dto, gestorDa(req));
+  }
+
+  @Post(':id/etapa')
+  @HttpCode(200)
+  async etapa(@Req() req: RequisicaoDaConta, @Param('id', uuid) id: string, @Body() dto: EtapaDto) {
+    const lead = await this.leads.porId(req.conta.id, id);
+    const novo = await this.leads.mudarEtapa(req.conta.id, lead, dto.etapa, dto, gestorDa(req));
+    return { id: novo.id, etapa: novo.etapa, etapaId: novo.etapaId };
+  }
+}
 
 /** Número que a automação manda como texto ("1.234,50", "1234.5"). */
 function valorDe(v: unknown): number | undefined {

@@ -468,3 +468,43 @@ th[aria-sort] .kt-ordenar { color: var(--ext-color-primary); }
   .kt-etapa-ajuda, .kt-etapa-chaves { margin-left: 0; }
   .kt-etapa-mover { margin-left: 0; }
 }
+
+/* ── Leads: ferramentas, colunas e troca em lote ── */
+.kt-leads-ferramentas { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 14px; }
+.kt-segmento { display: inline-flex; padding: 3px; gap: 2px; border-radius: var(--kt-r-p); background: var(--kt-superficie-2); }
+.kt-segmento button { font: inherit; font-size: .86em; font-weight: 600; padding: 5px 12px; border: 0; border-radius: 6px; background: transparent; color: var(--ext-color-text-muted); cursor: pointer; }
+.kt-segmento button:hover { color: var(--ext-color-text); }
+.kt-segmento button[aria-pressed="true"] { background: var(--ext-color-bg); color: var(--ext-color-primary); box-shadow: var(--kt-sombra); }
+.kt-segmento button:focus-visible { outline: none; box-shadow: var(--kt-foco); }
+.kt-busca { display: inline-flex; align-items: center; gap: 6px; flex: 0 1 280px; min-width: 200px; }
+.kt-busca input, .kt-filtro-salvar input { flex: 1; min-width: 0; font: inherit; font-size: .9em; padding: 6px 10px; border: 1px solid var(--kt-linha-forte); border-radius: var(--kt-r-p); background: var(--ext-color-bg); color: var(--ext-color-text); }
+.kt-busca input:focus, .kt-filtro-salvar input:focus { outline: none; border-color: var(--ext-color-primary); box-shadow: var(--kt-foco); }
+.kt-filtros-salvos { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-bottom: 14px; font-size: .9em; }
+.kt-filtro-salvo { display: inline-flex; align-items: center; gap: 4px; }
+.kt-filtro-salvo-remover { display: inline-flex; padding: 2px; border: 0; border-radius: 4px; background: transparent; color: var(--ext-color-text-muted); cursor: pointer; }
+.kt-filtro-salvo-remover:hover { color: var(--ext-color-error); }
+.kt-grade-filtros { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0 14px; }
+.kt-filtro-salvar { display: inline-flex; align-items: center; gap: 6px; flex: 1 1 280px; justify-content: flex-end; }
+.kt-exportacao { margin-top: 14px; }
+.kt-exportacao p { margin: 0 0 8px; }
+.kt-exportacao .kt-linha-acoes + p { margin-top: 8px; }
+.kt-atualizacoes { list-style: none; margin: 0; padding: 0; }
+.kt-atualizacoes li { display: flex; flex-wrap: wrap; gap: 2px 14px; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--kt-linha); font-size: .92em; }
+.kt-atualizacoes li:last-child { border-bottom: 0; }
+.kt-mover-lead { margin-bottom: 14px; }
+.kt-mover-lead p { margin: 0 0 10px; }
+.kt-quadro { display: flex; align-items: flex-start; gap: 12px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 10px; }
+.kt-coluna { flex: 0 0 248px; display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: var(--kt-r); background: var(--kt-superficie-2); }
+.kt-coluna-topo { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.kt-coluna-mais { margin: 0; font-size: .82em; }
+.kt-cartao-lead { display: flex; flex-direction: column; gap: 3px; padding: 10px; border: 1px solid var(--kt-linha); border-radius: var(--kt-r-p); background: var(--ext-color-bg); box-shadow: var(--kt-sombra); font-size: .88em; cursor: grab; }
+.kt-cartao-lead:active { cursor: grabbing; }
+.kt-cartao-origem { overflow-wrap: anywhere; }
+.kt-cartao-valor { font-weight: 700; color: var(--ext-color-success); }
+.kt-cartao-mover { margin-top: 5px; width: 100%; font: inherit; font-size: .92em; padding: 4px 6px; border: 1px solid var(--kt-linha-forte); border-radius: 6px; background: var(--ext-color-bg); color: var(--ext-color-text); cursor: pointer; }
+.kt-passos-lote { list-style: none; display: flex; flex-wrap: wrap; gap: 6px 20px; margin: 0 0 16px; padding: 0; font-size: .9em; color: var(--ext-color-text-muted); }
+.kt-passos-lote li { display: inline-flex; align-items: center; gap: 7px; }
+.kt-passo-atual { color: var(--ext-color-text); font-weight: 600; }
+.kt-passo-n { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: var(--kt-superficie-2); font-size: .85em; font-weight: 700; }
+.kt-passo-atual .kt-passo-n { background: var(--ext-color-primary); color: var(--ext-color-on-primary); }
+.kt-lote-tabela { max-height: 320px; overflow-y: auto; margin-bottom: 12px; }

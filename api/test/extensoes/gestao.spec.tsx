@@ -9,6 +9,12 @@ import { CHAVES_PENDENTES } from '../../../extension/gestao/src/primeiro-uso';
 import type { CtxOmni } from '../../../extension/comum/omni';
 import { assentar, ChamadaHttp, ok, omniFalso, OpcoesFalso } from './omni-falso';
 
+// O jsdom não desenha, e o Jest não lê os módulos ESM do ECharts que a aba Análises importa.
+jest.mock('echarts/core', () => ({ use: () => undefined, registerMap: () => undefined, init: () => ({ on: () => undefined, setOption: () => undefined, resize: () => undefined, dispose: () => undefined }) }));
+jest.mock('echarts/charts', () => ({ MapChart: {} }));
+jest.mock('echarts/components', () => ({ TooltipComponent: {}, VisualMapComponent: {}, AriaComponent: {} }));
+jest.mock('echarts/renderers', () => ({ SVGRenderer: {} }));
+
 const CHAVES = { contaId: 'c1', chaveAdmin: 'kta_A', chaveGestor: 'ktg_G', chaveAtendimento: 'ktk_K' };
 const CONTA = {
   id: 'c1',

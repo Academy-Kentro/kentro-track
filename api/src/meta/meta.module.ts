@@ -9,7 +9,7 @@ import { EtapasController } from '../etapas/etapas.controller';
 import { EtapasService } from '../etapas/etapas.service';
 import { FormulariosController } from '../formularios/formularios.controller';
 import { FormulariosService } from '../formularios/formularios.service';
-import { AtendimentoController, KentroController } from '../leads/leads.controller';
+import { AtendimentoController, GestaoLeadsController, KentroController } from '../leads/leads.controller';
 import { LeadsService } from '../leads/leads.service';
 import { AnalisesService } from '../painel/analises.service';
 import { MidiaController } from '../painel/midia.controller';
@@ -23,7 +23,7 @@ import { SincronizacaoService } from './sincronizacao/sincronizacao.service';
 
 @Module({
   imports: [ContasModule],
-  controllers: [MetaController, PainelController, MidiaController, AtendimentoController, KentroController, CapiController, EtapasController, FormulariosController],
+  controllers: [MetaController, PainelController, MidiaController, AtendimentoController, GestaoLeadsController, KentroController, CapiController, EtapasController, FormulariosController],
   providers: [
     {
       provide: ClienteGraph,

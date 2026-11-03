@@ -472,6 +472,18 @@ describe('gestão: Inspetor de Vendas', () => {
     expect(texto()).toContain('1 conversa analisada, 1 com possível venda.');
   });
 
+  it('a Kentro devolve vazio ou recusa: não manda para análise, conta e deixa a conversa na fila', async () => {
+    const falso = await abrir({ ...ROTAS, '/v1/inspetor/candidatos': { itens: [{ leadId: 'l1', chatId: '501' }, { leadId: 'l2', chatId: '502' }] } }, { mensagens: [] });
+    let chamada = 0;
+    falso.omni.chats.getMessages = async () => {
+      if (++chamada === 2) throw { code: 'not_found' };
+      return [];
+    };
+    await clicar(botao('Analisar conversas'));
+    expect(falso.chamadas.some((c) => c.url.includes('/inspetor/analisar'))).toBe(false);
+    expect(texto()).toContain('0 conversas analisadas, 0 com possível venda. 2 não puderam ser lidas pela Kentro e continuam na fila.');
+  });
+
   it('atingiu o limite: para e explica', async () => {
     await montar({
       http: (c) => {
@@ -938,6 +950,26 @@ describe('gestão: funil do atendimento, leads, equipe e integração', () => {
     it('ver conversa: atendimento que o usuário não enxerga mostra o motivo', async () => {
       const falso = await abrirLeads();
       falso.omni.chats.getMessages = async () => {
+        throw { code: 'not_found' };
+      };
+      await clicar(raiz.querySelector('button[aria-label="Ver conversa de Maria"]')!);
+      expect(raiz.querySelector('.kt-aviso-erro')?.textContent).toContain('não tem acesso a este atendimento');
+    });
+
+    it('ver conversa: a Kentro devolve vazio e o atendimento existe: diz isso, sem afirmar que a conversa está vazia', async () => {
+      const falso = await abrirLeads();
+      falso.omni.chats.getMessages = async () => [];
+      falso.omni.chats.get = async () => ({ id: 501 });
+      await clicar(raiz.querySelector('button[aria-label="Ver conversa de Maria"]')!);
+      expect(raiz.querySelector('.kt-aviso-erro')?.textContent).toContain('não devolveu as mensagens para esta tela');
+      expect(texto()).not.toContain('Nenhuma mensagem');
+      expect(raiz.querySelector('.kt-conversa')).toBeNull();
+    });
+
+    it('ver conversa: vazio e atendimento fora do alcance do usuário: diz que falta acesso', async () => {
+      const falso = await abrirLeads();
+      falso.omni.chats.getMessages = async () => [];
+      falso.omni.chats.get = async () => {
         throw { code: 'not_found' };
       };
       await clicar(raiz.querySelector('button[aria-label="Ver conversa de Maria"]')!);

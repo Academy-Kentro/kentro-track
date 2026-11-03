@@ -142,7 +142,7 @@ export function Inspetor({ omni, api, q, admin }: { omni: Omni; api: Api; q: str
     setAviso('');
     setProgresso({ feitas: 0, total: 0 });
     let achadas = 0;
-    let semAcesso = 0;
+    let semLeitura = 0;
     try {
       const { itens } = await api<{ itens: { leadId: string; chatId: string }[] }>(`/v1/inspetor/candidatos?${q}`);
       setProgresso({ feitas: 0, total: itens.length });
@@ -151,18 +151,22 @@ export function Inspetor({ omni, api, q, admin }: { omni: Omni; api: Api; q: str
         try {
           lote = await omni.chats.getMessages(Number(item.chatId), { limit: MENSAGENS_POR_CONVERSA });
         } catch {
-          // Atendimento que este usuário não enxerga: fica para quem enxerga.
-          semAcesso++;
+          lote = [];
+        }
+        // Sem mensagens lidas, nada foi analisado: a conversa não pode ser marcada como lida.
+        if (!Array.isArray(lote) || lote.length === 0) {
+          semLeitura++;
+          setProgresso({ feitas: i + 1, total: itens.length });
           continue;
         }
-        const { sugestao } = await api<{ sugestao: unknown }>('/v1/inspetor/analisar', { method: 'POST', body: { leadId: item.leadId, mensagens: paraEnvio(Array.isArray(lote) ? lote : []) } });
+        const { sugestao } = await api<{ sugestao: unknown }>('/v1/inspetor/analisar', { method: 'POST', body: { leadId: item.leadId, mensagens: paraEnvio(lote) } });
         if (sugestao) achadas++;
         setProgresso({ feitas: i + 1, total: itens.length });
       }
       setAviso(
         itens.length === 0
           ? 'Nenhuma conversa nova para analisar neste período.'
-          : `${inteiro(itens.length - semAcesso)} ${itens.length - semAcesso === 1 ? 'conversa analisada' : 'conversas analisadas'}, ${inteiro(achadas)} com possível venda.${semAcesso ? ` ${inteiro(semAcesso)} sem acesso pelo seu usuário.` : ''}`,
+          : `${inteiro(itens.length - semLeitura)} ${itens.length - semLeitura === 1 ? 'conversa analisada' : 'conversas analisadas'}, ${inteiro(achadas)} com possível venda.${semLeitura ? ` ${inteiro(semLeitura)} não ${semLeitura === 1 ? 'pôde ser lida' : 'puderam ser lidas'} pela Kentro e ${semLeitura === 1 ? 'continua' : 'continuam'} na fila.` : ''}`,
       );
     } catch (e) {
       const codigo = (e as ErroTrack)?.codigo;

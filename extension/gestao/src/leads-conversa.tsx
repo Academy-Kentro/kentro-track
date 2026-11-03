@@ -5,6 +5,8 @@ import type { MensagemOmni, Omni } from '../../comum/omni';
 import type { LeadDaLista } from './leads-comum';
 
 const POR_PAGINA = 50;
+const SEM_ACESSO = 'Seu usuário na Kentro não tem acesso a este atendimento.';
+const SEM_MENSAGENS = 'A Kentro encontrou o atendimento, mas não devolveu as mensagens para esta tela. Abra a conversa pela tela de atendimentos da Kentro.';
 
 const lado = (m: MensagemOmni) => {
   const d = String(m.direction ?? '');
@@ -35,12 +37,22 @@ export function ConversaLead({ omni, lead, fechar }: { omni: Omni; lead: Pick<Le
     try {
       const lote = await omni.chats.getMessages(Number(lead.chatId), antes === undefined ? { limit: POR_PAGINA } : { limit: POR_PAGINA, before: antes });
       const pagina = Array.isArray(lote) ? lote : [];
+      if (pagina.length === 0 && antes === undefined) {
+        // Vazio não prova que a conversa está vazia: o lead pode ter mensagens que esta tela não recebe.
+        const existe = await Promise.resolve()
+          .then(() => omni.chats.get(Number(lead.chatId)))
+          .then(
+            () => true,
+            () => false,
+          );
+        setErro(existe ? SEM_MENSAGENS : SEM_ACESSO);
+      }
       setTemMais(pagina.length === POR_PAGINA);
       // A Kentro entrega da mais recente para a mais antiga; a tela lê de cima para baixo.
       setMensagens((atuais) => [...[...pagina].reverse(), ...(antes === undefined ? [] : atuais ?? [])]);
     } catch (e) {
       const codigo = (e as { code?: string })?.code;
-      setErro(codigo === 'not_found' || codigo === 'forbidden' ? 'Seu usuário na Kentro não tem acesso a este atendimento.' : 'Não foi possível ler a conversa na Kentro agora.');
+      setErro(codigo === 'not_found' || codigo === 'forbidden' ? SEM_ACESSO : 'Não foi possível ler a conversa na Kentro agora.');
       setMensagens((atuais) => atuais ?? []);
     } finally {
       setCarregando(false);
@@ -72,15 +84,16 @@ export function ConversaLead({ omni, lead, fechar }: { omni: Omni; lead: Pick<Le
               {carregando ? 'Carregando…' : 'Mensagens anteriores'}
             </button>
           )}
-          {mensagens.length === 0 && !erro && <p class="kt-muted">Nenhuma mensagem neste atendimento.</p>}
-          <ol class="kt-conversa">
-            {mensagens.map((m) => (
-              <li key={m.id} class={`kt-mensagem kt-mensagem-${lado(m)}`}>
-                <span class="kt-mensagem-texto">{m.text?.trim() || <em class="kt-muted">Arquivo ou mídia</em>}</span>
-                <span class="kt-muted kt-mensagem-hora">{horario(m.at)}</span>
-              </li>
-            ))}
-          </ol>
+          {mensagens.length > 0 && (
+            <ol class="kt-conversa">
+              {mensagens.map((m) => (
+                <li key={m.id} class={`kt-mensagem kt-mensagem-${lado(m)}`}>
+                  <span class="kt-mensagem-texto">{m.text?.trim() || <em class="kt-muted">Arquivo ou mídia</em>}</span>
+                  <span class="kt-muted kt-mensagem-hora">{horario(m.at)}</span>
+                </li>
+              ))}
+            </ol>
+          )}
         </>
       )}
     </Secao>

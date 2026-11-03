@@ -688,6 +688,49 @@ describe('gestão: funil do atendimento, leads, equipe e integração', () => {
       }
     });
 
+    it('aguardando 1ª resposta: aparece com contagem e filtra; sem nenhum, não aparece', async () => {
+      const falso = await abrirLeads({ ...ROTAS, '/v1/painel/leads': { ...COM_ETAPAS, aguardandoResposta: 3 } });
+      await clicar(botao('Aguardando 1ª resposta'));
+      expect(parametro(ultima(falso, '/v1/painel/leads?'), 'aguardando')).toBe('1');
+      expect(botao('Aguardando 1ª resposta')!.textContent).toContain('(3)');
+      render(null, raiz);
+      await abrirLeads();
+      expect(botao('Aguardando 1ª resposta')).toBeUndefined();
+    });
+
+    it('ver conversa: lê da Kentro, da mais antiga para a mais nova, sem passar pela API', async () => {
+      const comChat = { ...COM_ETAPAS, itens: [{ ...LEADS.itens[0], ultimaMensagemEm: '2026-10-10T16:00:00Z' }, LEADS.itens[1]] };
+      const falso = await montar({
+        http: api({ ...ROTAS, '/v1/painel/leads': comChat }),
+        mensagens: [
+          { id: 2, direction: 'out', text: 'Bom dia, Maria', at: '2026-10-10T16:01:00Z' },
+          { id: 1, direction: 'in', text: 'Quero comprar', at: '2026-10-10T16:00:00Z' },
+          { id: 3, direction: 'in', text: null, at: '2026-10-10T16:02:00Z' },
+        ],
+      });
+      await clicar(botao('Leads'));
+      const chamadas = falso.chamadas.length;
+      // O lead sem atendimento na Kentro (formulário) não tem conversa para abrir.
+      expect(raiz.querySelectorAll('button[aria-label^="Ver conversa"]')).toHaveLength(1);
+      await clicar(raiz.querySelector('button[aria-label="Ver conversa de Maria"]')!);
+      const mensagens = [...raiz.querySelectorAll('.kt-mensagem')];
+      expect(mensagens.map((m) => m.querySelector('.kt-mensagem-texto')!.textContent)).toEqual(['Quero comprar', 'Bom dia, Maria', 'Arquivo ou mídia']);
+      expect(mensagens[0]!.className).toContain('kt-mensagem-cliente');
+      expect(mensagens[1]!.className).toContain('kt-mensagem-equipe');
+      expect(falso.chamadas).toHaveLength(chamadas);
+      await clicar(raiz.querySelector('button[aria-label="Fechar a conversa"]')!);
+      expect(raiz.querySelector('.kt-conversa')).toBeNull();
+    });
+
+    it('ver conversa: atendimento que o usuário não enxerga mostra o motivo', async () => {
+      const falso = await abrirLeads();
+      falso.omni.chats.getMessages = async () => {
+        throw { code: 'not_found' };
+      };
+      await clicar(raiz.querySelector('button[aria-label="Ver conversa de Maria"]')!);
+      expect(raiz.querySelector('.kt-aviso-erro')?.textContent).toContain('não tem acesso a este atendimento');
+    });
+
     it('últimas atualizações: só busca ao abrir', async () => {
       const falso = await abrirLeads({
         ...ROTAS,
@@ -954,6 +997,23 @@ describe('gestão: aba Análises', () => {
     ranking: { campanhas: [item('Black Friday', 2, 3000)], conjuntos: [item('Quente', 2, 3000)], anuncios: [] },
   };
 
+  it('tempo de resposta: troca entre a 1ª e a 2ª mensagem; sem mensagens ligadas, explica como ligar', async () => {
+    const tempoResposta = { respondidos: 4, aguardando: 1, minutosPrimeira: 5, minutosSegunda: 90 };
+    await montar({ http: api({ '/v1/conta': CONTA, '/v1/painel/filtros': FILTROS, '/v1/painel/analises': { ...ANALISES, tempoResposta } }) });
+    await clicar(botao('Análises'));
+    const cartao = () => raiz.querySelector('.kt-tempo-resposta')!;
+    expect(cartao().textContent).toContain('5 min');
+    expect(cartao().textContent).toContain('4 conversas respondidas');
+    await act(async () => {
+      (cartao().querySelector('input[type="checkbox"]') as HTMLInputElement).click();
+    });
+    expect(cartao().textContent).toContain('1,5 h');
+    render(null, raiz);
+    await montar({ http: api({ '/v1/conta': CONTA, '/v1/painel/filtros': FILTROS, '/v1/painel/analises': ANALISES }) });
+    await clicar(botao('Análises'));
+    expect(cartao().textContent).toContain('Ligue as mensagens');
+  });
+
   it('mostra origens com % rastreado, dia a dia, o que mais vende, jornada e mapa de calor numa chamada só', async () => {
     const falso = await montar({ http: api({ '/v1/conta': CONTA, '/v1/painel/filtros': FILTROS, '/v1/painel/analises': ANALISES }) });
     await clicar(botao('Análises'));
@@ -972,6 +1032,7 @@ describe('gestão: aba Análises', () => {
       'Etapa atual dos leads',
       'Motivos de descarte',
       'Tempo até o atendimento',
+      'Tempo de resposta',
       'Chegada de leads por dia e hora',
       'Leads por estado',
       'Leads por DDD',

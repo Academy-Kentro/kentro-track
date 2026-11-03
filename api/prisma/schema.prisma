@@ -298,6 +298,10 @@ model EtapaFunil {
   qualificada    Boolean   @default(false)
   /// Evento da API de Conversões; null não envia.
   eventoMeta     String?   @map("evento_meta")
+  /// O atendente mandar uma destas frases leva o lead a esta etapa (sem diferenciar caixa nem acento).
+  frases         String[]  @default([])
+  /// Etapa de venda: tem prioridade sobre o valor escrito na mensagem da frase.
+  valorPadrao    Decimal?  @map("valor_padrao") @db.Decimal(14, 2)
   botaoAtendente Boolean   @default(true) @map("botao_atendente")
   noPainel       Boolean   @default(true) @map("no_painel")
   ativa          Boolean   @default(true)
@@ -369,6 +373,13 @@ model Lead {
   vendaEm       DateTime? @map("venda_em")
   descartadoEm  DateTime? @map("descartado_em")
   atualizadoEm  DateTime  @updatedAt @map("atualizado_em")
+
+  // Só os horários: o texto das mensagens não é guardado (leads/frases.ts lê e descarta).
+  primeiraRespostaEm   DateTime? @map("primeira_resposta_em")
+  /// Quem usa saudação automática humana mede a partir desta.
+  segundaRespostaEm    DateTime? @map("segunda_resposta_em")
+  ultimaMensagemEm     DateTime? @map("ultima_mensagem_em")
+  ultimaMensagemLeadEm DateTime? @map("ultima_mensagem_lead_em")
 
   conta      Conta        @relation(fields: [contaId], references: [id], onDelete: Cascade)
   etapaFunil EtapaFunil?  @relation(fields: [etapaId], references: [id], onDelete: SetNull)

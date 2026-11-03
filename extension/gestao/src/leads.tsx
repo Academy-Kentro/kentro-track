@@ -6,7 +6,8 @@ import { Icone } from '../../comum/icones';
 import type { Omni } from '../../comum/omni';
 import { atendentesNaKentro, gravarAtendentes } from './atendentes';
 import { Seletor, type Carga } from './filtro';
-import { CLASSE_TIPO, FILTRO_LEADS_PADRAO, filtrosAtivos, ORIGENS, SITUACOES, type DadosLeads, type Etapa, type FiltroLeads, type VisaoLeads } from './leads-comum';
+import { CLASSE_TIPO, FILTRO_LEADS_PADRAO, filtrosAtivos, ORIGENS, SITUACOES, type DadosLeads, type Etapa, type FiltroLeads, type LeadDaLista, type VisaoLeads } from './leads-comum';
+import { ConversaLead } from './leads-conversa';
 import { PainelFiltros, useFiltrosSalvos } from './leads-filtros';
 import { TrocaEmLote } from './leads-lote';
 import { QuadroLeads } from './leads-quadro';
@@ -89,7 +90,7 @@ function Ferramentas({
 
   const alternar = (p: typeof aberto) => setAberto(aberto === p ? '' : p);
   const ativos = filtrosAtivos(filtro);
-  const temFiltro = ativos > 0 || !!filtro.busca || !!filtro.origem || !!filtro.etapa;
+  const temFiltro = ativos > 0 || !!filtro.busca || !!filtro.origem || !!filtro.etapa || !!filtro.aguardando;
   return (
     <>
       <div class="kt-leads-ferramentas">
@@ -183,6 +184,7 @@ export function Leads({
 }) {
   const { dados, erro, carregando } = carga;
   const atuais = useAtendentesAtuais(omni, api, visao === 'lista' ? dados?.itens : undefined);
+  const [conversa, setConversa] = useState<LeadDaLista | null>(null);
   const ferramentas = <Ferramentas omni={omni} api={api} q={q} filtro={filtro} mudar={mudar} visao={visao} mudarVisao={mudarVisao} />;
 
   if (visao === 'colunas') {
@@ -205,6 +207,7 @@ export function Leads({
   return (
     <div class={carregando ? 'kt-recarregando' : ''}>
       {ferramentas}
+      {conversa && <ConversaLead key={conversa.id} omni={omni} lead={conversa} fechar={() => setConversa(null)} />}
       <div class="kt-barra-leads">
         {dados && (
           <div class="kt-chips" role="group" aria-label="Etapa">
@@ -219,6 +222,11 @@ export function Leads({
                 {e.rotulo} <span class="kt-chip-n">({inteiro(dados.porEtapa[e.id] ?? 0)})</span>
               </button>
             ))}
+            {((dados.aguardandoResposta ?? 0) > 0 || filtro.aguardando) && (
+              <button type="button" class="kt-chip" aria-pressed={!!filtro.aguardando} onClick={() => mudar({ ...filtro, aguardando: !filtro.aguardando || undefined, pagina: 1 })}>
+                <Icone nome="relogio" tamanho={13} /> Aguardando 1ª resposta <span class="kt-chip-n">({inteiro(dados.aguardandoResposta ?? 0)})</span>
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -240,7 +248,11 @@ export function Leads({
                   <th>Origem</th>
                   <th>Atendente</th>
                   <th>Etapa</th>
+                  <th>Última mensagem</th>
                   <th class="kt-num">Venda</th>
+                  <th>
+                    <span class="kt-invisivel">Conversa</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -267,7 +279,15 @@ export function Leads({
                     <td>
                       <span class={`kt-etapa kt-etapa-${l.etapaTipo ? CLASSE_TIPO[l.etapaTipo] : l.etapa}`}>{l.etapaNome ?? ETAPA_ROTULO[l.etapa]}</span>
                     </td>
+                    <td>{l.ultimaMensagemEm ? new Date(l.ultimaMensagemEm).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}</td>
                     <td class="kt-num">{l.valorVenda == null ? '—' : dinheiro(l.valorVenda)}</td>
+                    <td>
+                      {l.chatId && (
+                        <button type="button" class="kt-botao kt-botao-fantasma kt-botao-pequeno" aria-label={`Ver conversa de ${l.nome ?? 'lead sem nome'}`} onClick={() => setConversa(l)}>
+                          <Icone nome="mensagem" tamanho={14} />
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>

@@ -508,3 +508,16 @@ th[aria-sort] .kt-ordenar { color: var(--ext-color-primary); }
 .kt-passo-n { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: var(--kt-superficie-2); font-size: .85em; font-weight: 700; }
 .kt-passo-atual .kt-passo-n { background: var(--ext-color-primary); color: var(--ext-color-on-primary); }
 .kt-lote-tabela { max-height: 320px; overflow-y: auto; margin-bottom: 12px; }
+
+/* ── Conversa, frases gatilho e tempo de resposta ── */
+.kt-conversa { list-style: none; display: flex; flex-direction: column; gap: 6px; max-height: 420px; overflow-y: auto; margin: 10px 0 0; padding: 12px; border-radius: var(--kt-r-p); background: var(--kt-superficie-2); }
+.kt-mensagem { display: flex; flex-direction: column; gap: 2px; max-width: 75%; padding: 7px 10px; border-radius: var(--kt-r-p); background: var(--ext-color-bg); font-size: .92em; }
+.kt-mensagem-equipe { align-self: flex-end; background: var(--kt-suave); }
+.kt-mensagem-cliente { align-self: flex-start; }
+.kt-mensagem-aviso { align-self: center; background: transparent; color: var(--ext-color-text-muted); font-size: .84em; }
+.kt-mensagem-texto { white-space: pre-wrap; overflow-wrap: anywhere; }
+.kt-mensagem-hora { font-size: .78em; align-self: flex-end; }
+.kt-etapa-frases { display: flex; flex-wrap: wrap; gap: 0 16px; margin: 10px 0 0 36px; }
+.kt-etapa-frases .kt-campo { flex: 1 1 280px; margin-bottom: 6px; }
+.kt-tempo-resposta strong.kt-tempo-valor { display: block; font-size: 1.7em; line-height: 1.2; margin: 8px 0 4px; }
+@media (max-width: 640px) { .kt-etapa-frases { margin-left: 0; } }

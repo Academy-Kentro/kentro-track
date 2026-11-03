@@ -15,6 +15,8 @@ export interface LeadDaLista {
   chatId: string | null;
   recebidoEm: string;
   atendente: string | null;
+  primeiraRespostaEm?: string | null;
+  ultimaMensagemEm?: string | null;
   valorVenda: number | null;
   campanha: string | null;
   anuncio: string | null;
@@ -26,6 +28,8 @@ export interface DadosLeads {
   temMais: boolean;
   /** Por "novo", "em_atendimento" ou id da etapa do funil. */
   porEtapa: Record<string, number>;
+  /** Conversas do período em que o cliente escreveu e a equipe ainda não respondeu. */
+  aguardandoResposta?: number;
   etapas?: EtapaFunil[];
   itens: LeadDaLista[];
 }
@@ -42,7 +46,8 @@ export interface FiltroLeads {
   atendente?: string;
   vendaDe?: string;
   vendaAte?: string;
-  ordem?: '' | 'antigos' | 'maior_venda' | 'nome';
+  ordem?: '' | 'antigos' | 'maior_venda' | 'nome' | 'ultima_mensagem';
+  aguardando?: boolean;
 }
 
 export const FILTRO_LEADS_PADRAO: FiltroLeads = { origem: '', etapa: '', pagina: 1 };
@@ -78,6 +83,7 @@ export function consultaLeads(base: string, filtro: FiltroLeads): string {
   if (filtro.vendaDe) q.set('vendaDe', filtro.vendaDe);
   if (filtro.vendaAte) q.set('vendaAte', filtro.vendaAte);
   if (filtro.ordem) q.set('ordem', filtro.ordem);
+  if (filtro.aguardando) q.set('aguardando', '1');
   if (filtro.pagina > 1) q.set('pagina', String(filtro.pagina));
   return q.toString();
 }

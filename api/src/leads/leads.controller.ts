@@ -63,6 +63,9 @@ export function atendenteDa(req: Request): Autor {
   return { tipo: 'atendente', id: id && /^\d{1,20}$/.test(id) ? id : undefined, nome: decodificar(req.header('X-Kentro-Usuario-Nome')) || undefined };
 }
 
+/** Frase gatilho e valor ficam no começo da mensagem; o resto não precisa ser lido. */
+const MAX_TEXTO_MENSAGEM = 5000;
+
 const gestorDa = (req: Request): Autor => ({ ...atendenteDa(req), tipo: 'gestor' });
 
 const uuid = new ParseUUIDPipe({ exceptionFactory: () => new ErroApi(404, 'NAO_ENCONTRADO', 'Lead não encontrado.') });
@@ -171,14 +174,14 @@ export class KentroController {
     if (conta.status === 'bloqueada') throw new ErroApi(403, 'CONTA_BLOQUEADA', 'Conta bloqueada no Kentro Track.');
 
     const evento = String(corpo?.evento ?? '').trim();
-    // Além de chat_iniciado, cada etapa do funil é um evento (a chave dela; os nomes de antes valem).
-    if (evento !== 'chat_iniciado' && evento !== 'em_atendimento') {
+    // Além de chat_iniciado e mensagem, cada etapa do funil é um evento (a chave dela; os nomes de antes valem).
+    if (evento !== 'chat_iniciado' && evento !== 'em_atendimento' && evento !== 'mensagem') {
       try {
         await this.etapas.resolver(conta.id, evento);
       } catch (e) {
         if (!(e instanceof ErroApi) || e.codigo !== 'ETAPA_DESCONHECIDA') throw e;
         const chaves = (await this.etapas.listar(conta.id)).filter((x) => x.ativa).map((x) => x.chave);
-        throw new ErroApi(400, 'EVENTO_INVALIDO', `Evento desconhecido. Use: chat_iniciado, ${chaves.join(', ')}.`);
+        throw new ErroApi(400, 'EVENTO_INVALIDO', `Evento desconhecido. Use: chat_iniciado, mensagem, ${chaves.join(', ')}.`);
       }
     }
     const autor: Autor = { tipo: 'kentro', nome: 'Automação da Kentro' };
@@ -190,6 +193,15 @@ export class KentroController {
       contatoId: corpo.contatoId == null ? undefined : String(corpo.contatoId),
       anuncio,
     };
+
+    if (evento === 'mensagem') {
+      const direcao = String(corpo.direcao ?? '').trim().toLowerCase();
+      const texto = typeof corpo.texto === 'string' ? corpo.texto.slice(0, MAX_TEXTO_MENSAGEM) : '';
+      const lead = await this.leads.registrarMensagem(conta.id, atendimento, direcao, texto, autor);
+      if (!lead) return { ok: true, ignorada: true };
+      if (direcao === 'out') await this.leads.definirAtendente(lead, corpo.atendenteId, corpo.atendente);
+      return { ok: true, leadId: lead.id };
+    }
 
     // chat_iniciado não marca "atendido": o atendimento pode estar só com a IA ou na fila.
     // chat_iniciado pode ser reenviado (é idempotente): é assim que a automação conta quem assumiu.
@@ -229,6 +241,7 @@ export class KentroController {
       etapas: etapas.map((e) => ({ chave: e.chave, nome: e.nome, tipo: e.tipo })),
       exemplos: {
         chat_iniciado: { evento: 'chat_iniciado', ...base, anuncio: { url: '{{message_ad_url}}', titulo: '{{message_ad_title}}', texto: '{{message_ad_body}}' } },
+        mensagem: { evento: 'mensagem', ...base, direcao: '{{message_direction}}', texto: '{{message_text}}' },
         ...Object.fromEntries(etapas.map((e) => [e.chave, { evento: e.chave, chatId: '{{chat_id}}', ...extra(e.tipo), ...atendente }])),
       },
     };

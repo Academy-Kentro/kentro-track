@@ -1,5 +1,6 @@
 import type { ComponentChildren } from 'preact';
-import { Aviso, Carregando } from '../../comum/componentes';
+import { useState } from 'preact/hooks';
+import { Aviso, Carregando, Interruptor } from '../../comum/componentes';
 import { compacto, dinheiro, dinheiroCompacto, inteiro, percentual, vezes } from '../../comum/formato';
 import { Icone, NomeIcone } from '../../comum/icones';
 import type { Carga } from './filtro';
@@ -28,6 +29,8 @@ export interface DadosAnalises {
   estados: { itens: LeadsUf[]; ddds: LeadsDdd[]; semEstado: number };
   horario: { diaSemana: number; hora: number; leads: number }[];
   tempoAtendimento: { faixas: { id: string; rotulo: string; leads: number }[]; naoAtendidos: number };
+  /** Só existe com as mensagens ligadas (Configurações › Integração); API anterior não manda. */
+  tempoResposta?: { respondidos: number; aguardando: number; minutosPrimeira: number | null; minutosSegunda: number | null };
   ranking: { campanhas: ItemRanking[]; conjuntos: ItemRanking[]; anuncios: ItemRanking[] };
 }
 
@@ -64,6 +67,37 @@ function Bloco({ icone, titulo, descricao, colunas = 3, children }: { icone: Nom
 }
 
 const plural = (n: number, um: string, varios: string) => `${inteiro(n)} ${n === 1 ? um : varios}`;
+
+const duracao = (min: number) => (min < 60 ? `${inteiro(min)} min` : `${(min / 60).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} h`);
+
+/** Do lead chegar à resposta do atendente. A saudação manual de cada atendente distorce: daí a opção da 2ª mensagem. */
+function TempoResposta({ dados }: { dados: DadosAnalises['tempoResposta'] }) {
+  const [daSegunda, setDaSegunda] = useState(false);
+  const minutos = daSegunda ? dados?.minutosSegunda : dados?.minutosPrimeira;
+  return (
+    <figure class="kt-grafico kt-tempo-resposta">
+      <figcaption class="kt-grafico-topo">
+        <div>
+          <h3>Tempo de resposta</h3>
+          <p class="kt-muted">Do lead chegar até o atendente responder</p>
+        </div>
+      </figcaption>
+      {!dados || (dados.respondidos === 0 && dados.aguardando === 0) ? (
+        <p class="kt-muted">Sem dados no período. Ligue as mensagens em Configurações › Integração com o atendimento.</p>
+      ) : (
+        <>
+          <strong class="kt-tempo-valor">{minutos == null ? '—' : duracao(minutos)}</strong>
+          <p class="kt-muted">
+            {plural(dados.respondidos, 'conversa respondida', 'conversas respondidas')} · {plural(dados.aguardando, 'aguardando', 'aguardando')}
+          </p>
+          <Interruptor ligado={daSegunda} mudar={setDaSegunda}>
+            Calcular a partir da 2ª mensagem
+          </Interruptor>
+        </>
+      )}
+    </figure>
+  );
+}
 
 export function Analises({ carga }: { carga: Carga<DadosAnalises> }) {
   const { dados, erro, carregando } = carga;
@@ -177,6 +211,7 @@ export function Analises({ carga }: { carga: Carga<DadosAnalises> }) {
           ]}
           formatar={inteiro}
         />
+        <TempoResposta dados={dados.tempoResposta} />
       </Bloco>
 
       <Bloco icone="relogio" titulo="Quando e onde" descricao="Horário de chegada (no fuso da conta) e de onde vêm os leads, pelo DDD do telefone" colunas={2}>

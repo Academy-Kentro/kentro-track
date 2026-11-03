@@ -6,7 +6,7 @@ import { cadaDia, comoDia, diasEntre, ehDia, somarDias } from '../comum/datas';
 import { ErroApi } from '../comum/erros';
 import { PrismaService } from '../comum/prisma.service';
 import { etapaPublica, EtapasService } from '../etapas/etapas.service';
-import { mascararTelefone, normalizarTelefone } from '../leads/telefone';
+import { mascararTelefone, normalizarTelefone, telefoneParaPlanilha } from '../leads/telefone';
 import { montarCsv, valorCsv } from './csv';
 import { calcular, Metricas, Somas, somar, somasDe, ZERO } from './metricas';
 
@@ -29,6 +29,7 @@ export interface FiltroLeads extends Filtro {
   vendaDe?: string;
   vendaAte?: string;
   ordem?: string;
+  aguardando?: string;
 }
 
 export type TipoExportacao = 'leads' | 'vendas' | 'jornada';
@@ -50,6 +51,7 @@ const ORDENS_LEADS: Record<string, Prisma.Sql> = {
   antigos: Prisma.sql`l.recebido_em ASC`,
   maior_venda: Prisma.sql`l.valor_venda DESC NULLS LAST, l.recebido_em DESC`,
   nome: Prisma.sql`l.nome ASC NULLS LAST, l.recebido_em DESC`,
+  ultima_mensagem: Prisma.sql`l.ultima_mensagem_em DESC NULLS LAST, l.recebido_em DESC`,
 };
 
 const ROTULO_SITUACAO: Record<string, string> = { novo: 'Novo', em_atendimento: 'Em atendimento', qualificado: 'Qualificado', venda: 'Venda', descartado: 'Descartado' };
@@ -97,6 +99,8 @@ interface LinhaLead {
   chat_id: string | null;
   recebido_em: Date;
   atendido_em: Date | null;
+  primeira_resposta_em: Date | null;
+  ultima_mensagem_em: Date | null;
   atendente_nome: string | null;
   valor_venda: unknown;
   vinculo_anuncio: string | null;
@@ -350,6 +354,7 @@ export class PainelService {
       if (filtro.vendaDe) partes.push(Prisma.sql`AND ${horaLocal('venda_em')}::date >= ${filtro.vendaDe}::date`);
       if (filtro.vendaAte) partes.push(Prisma.sql`AND ${horaLocal('venda_em')}::date <= ${filtro.vendaAte}::date`);
     }
+    if (filtro.aguardando) partes.push(Prisma.sql`AND l.primeira_resposta_em IS NULL AND l.ultima_mensagem_lead_em IS NOT NULL`);
     const busca = filtro.busca?.trim();
     if (busca) {
       const nome = `%${busca.replace(/[\\%_]/g, '\\$&')}%`;
@@ -384,6 +389,8 @@ export class PainelService {
       chatId: l.chat_id,
       recebidoEm: l.recebido_em,
       atendidoEm: l.atendido_em,
+      primeiraRespostaEm: l.primeira_resposta_em,
+      ultimaMensagemEm: l.ultima_mensagem_em,
       atendente: l.atendente_nome,
       valorVenda: l.valor_venda == null ? null : Number(l.valor_venda),
       campanha: l.campanha,
@@ -399,6 +406,11 @@ export class PainelService {
     return Object.fromEntries(contagem.map((e) => [e.etapa, Number(e.n)]));
   }
 
+  private async contarAguardando(onde: Prisma.Sql): Promise<number> {
+    const [{ n }] = await this.prisma.$queryRaw<{ n: bigint }[]>`SELECT COUNT(*) AS n FROM leads l WHERE ${onde} AND l.primeira_resposta_em IS NULL AND l.ultima_mensagem_lead_em IS NOT NULL`;
+    return Number(n);
+  }
+
   /** Lista de leads do período (mais recentes primeiro), com a origem resolvida em nomes. */
   async leads(contaId: string, filtro: FiltroLeads) {
     const { ondeLeads, horaLocal } = await this.escopo(contaId, filtro);
@@ -407,7 +419,7 @@ export class PainelService {
     const filtros = this.filtrosDeLeads(filtro, horaLocal);
     const porEtapa = this.filtroDeEtapa(filtro.etapa);
     const linhas = await this.prisma.$queryRaw<LinhaLead[]>`
-      SELECT l.id, l.origem, l.etapa, l.etapa_id::text AS etapa_id, l.nome, l.telefone, l.chat_id, l.recebido_em, l.atendido_em, l.atendente_nome,
+      SELECT l.id, l.origem, l.etapa, l.etapa_id::text AS etapa_id, l.nome, l.telefone, l.chat_id, l.recebido_em, l.atendido_em, l.primeira_resposta_em, l.ultima_mensagem_em, l.atendente_nome,
              l.valor_venda, l.vinculo_anuncio, c.nome AS campanha, a.nome AS anuncio
       FROM leads l
       LEFT JOIN campanhas c ON c.conta_anuncio_id = l.conta_anuncio_id AND c.id_meta = l.campanha_id_meta
@@ -423,6 +435,7 @@ export class PainelService {
       etapas: etapas.map(etapaPublica),
       temMais: linhas.length > porPagina,
       porEtapa: await this.contarLeadsPorEtapa(Prisma.sql`${ondeLeads(filtro.de, filtro.ate, true)} ${filtros}`),
+      aguardandoResposta: await this.contarAguardando(ondeLeads(filtro.de, filtro.ate, true)),
       itens: linhas.slice(0, porPagina).map((l) => this.itemDeLead(l, nomes)),
     };
   }
@@ -436,7 +449,7 @@ export class PainelService {
         SELECT l.*, ROW_NUMBER() OVER (PARTITION BY COALESCE(l.etapa_id::text, l.etapa::text) ORDER BY l.recebido_em DESC) AS posicao
         FROM leads l WHERE ${onde}
       )
-      SELECT l.id, l.origem, l.etapa, l.etapa_id::text AS etapa_id, l.nome, l.telefone, l.chat_id, l.recebido_em, l.atendido_em, l.atendente_nome,
+      SELECT l.id, l.origem, l.etapa, l.etapa_id::text AS etapa_id, l.nome, l.telefone, l.chat_id, l.recebido_em, l.atendido_em, l.primeira_resposta_em, l.ultima_mensagem_em, l.atendente_nome,
              l.valor_venda, l.vinculo_anuncio, c.nome AS campanha, a.nome AS anuncio
       FROM numerados l
       LEFT JOIN campanhas c ON c.conta_anuncio_id = l.conta_anuncio_id AND c.id_meta = l.campanha_id_meta
@@ -449,6 +462,7 @@ export class PainelService {
       etapas: etapas.map(etapaPublica),
       cartoesPorColuna: CARTOES_POR_COLUNA,
       porEtapa: await this.contarLeadsPorEtapa(onde),
+      aguardandoResposta: await this.contarAguardando(ondeLeads(filtro.de, filtro.ate, true)),
       itens: linhas.map((l) => this.itemDeLead(l, nomes)),
     };
   }
@@ -520,7 +534,7 @@ export class PainelService {
         ORDER BY e.em DESC, e.id DESC
         LIMIT ${MAX_LINHAS_EXPORTACAO + 1}`;
       cabecalho = ['Data', 'Lead', 'Telefone', 'Mudança', 'Quem fez'];
-      linhas = eventos.map((e) => [e.em, e.nome, mascararTelefone(e.telefone), e.texto, ROTULO_AUTOR[e.autor] ?? e.autor]);
+      linhas = eventos.map((e) => [e.em, e.nome, telefoneParaPlanilha(e.telefone), e.texto, ROTULO_AUTOR[e.autor] ?? e.autor]);
     } else {
       // Vendas: pelo dia da venda; leads: pelo dia em que o lead chegou.
       const periodo =
@@ -528,7 +542,7 @@ export class PainelService {
           ? Prisma.sql`${filtroLeads(true)} AND l.etapa = 'venda' AND ${horaLocal('venda_em')}::date BETWEEN ${filtro.de}::date AND ${filtro.ate}::date`
           : ondeLeads(filtro.de, filtro.ate, true);
       const leads = await this.prisma.$queryRaw<Record<string, string | null>[]>`
-        SELECT ${quando(Prisma.sql`l.recebido_em`)} AS recebido, ${quando(Prisma.sql`l.venda_em`)} AS venda, l.nome, l.telefone, l.origem::text AS origem,
+        SELECT ${quando(Prisma.sql`l.recebido_em`)} AS recebido, ${quando(Prisma.sql`l.venda_em`)} AS venda, ${quando(Prisma.sql`l.primeira_resposta_em`)} AS resposta, ${quando(Prisma.sql`l.ultima_mensagem_em`)} AS mensagem, l.nome, l.telefone, l.origem::text AS origem,
                l.etapa::text AS etapa, l.etapa_id::text AS etapa_id, l.atendente_nome, l.valor_venda, l.motivo_descarte,
                ca.nome AS campanha, co.nome AS conjunto, a.nome AS anuncio
         FROM leads l
@@ -538,11 +552,11 @@ export class PainelService {
         WHERE ${periodo} ${filtros} ${porEtapa}
         ORDER BY ${tipo === 'vendas' ? Prisma.sql`l.venda_em DESC` : ORDENS_LEADS[filtro.ordem ?? ''] ?? ORDENS_LEADS.recentes}
         LIMIT ${MAX_LINHAS_EXPORTACAO + 1}`;
-      cabecalho = ['Chegou em', 'Lead', 'Telefone', 'Origem', 'Campanha', 'Conjunto', 'Anúncio', 'Atendente', 'Etapa', 'Venda em', 'Valor da venda', 'Motivo do descarte'];
+      cabecalho = ['Chegou em', 'Lead', 'Telefone', 'Origem', 'Campanha', 'Conjunto', 'Anúncio', 'Atendente', 'Etapa', 'Venda em', 'Valor da venda', 'Motivo do descarte', 'Primeira resposta', 'Última mensagem'];
       linhas = leads.map((l) => [
         l.recebido,
         l.nome,
-        mascararTelefone(l.telefone),
+        telefoneParaPlanilha(l.telefone),
         ROTULO_ORIGEM[l.origem ?? ''] ?? l.origem,
         l.campanha,
         l.conjunto,
@@ -552,6 +566,8 @@ export class PainelService {
         l.venda,
         l.etapa === 'venda' ? valorCsv(l.valor_venda) : null,
         l.motivo_descarte,
+        l.resposta,
+        l.mensagem,
       ]);
     }
     const truncado = linhas.length > MAX_LINHAS_EXPORTACAO;

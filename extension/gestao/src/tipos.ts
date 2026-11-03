@@ -33,6 +33,10 @@ export interface EtapaFunil {
   /** Chegar aqui (ou além) conta como lead qualificado. */
   qualificada: boolean;
   eventoMeta: string | null;
+  /** O atendente mandar uma destas frases leva o lead a esta etapa. */
+  frases?: string[];
+  /** Venda: tem prioridade sobre o valor escrito na mensagem. */
+  valorPadrao?: number | null;
   botaoAtendente: boolean;
   noPainel: boolean;
   ativa: boolean;

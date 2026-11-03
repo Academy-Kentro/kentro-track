@@ -19,6 +19,17 @@ export function normalizarTelefone(bruto: string | null | undefined): { telefone
   return { telefone: d, chave: d.slice(-10) };
 }
 
+/**
+ * "5538999990000" → "55 38 99999-0000": número inteiro para planilha. Só com dígitos, o Excel mostraria
+ * 5,54E+12; assim fica texto, e colar na troca em lote continua achando o lead.
+ */
+export function telefoneParaPlanilha(telefone: string | null | undefined): string | null {
+  if (!telefone) return null;
+  const d = telefone.replace(/\D/g, '');
+  if (d.startsWith('55') && (d.length === 12 || d.length === 13)) return `55 ${d.slice(2, 4)} ${d.slice(4, -4)}-${d.slice(-4)}`;
+  return d;
+}
+
 /** "5538999990000" → "(38) 9****-0000": o gestor identifica o lead sem ver o número inteiro. */
 export function mascararTelefone(telefone: string | null | undefined): string | null {
   if (!telefone) return null;

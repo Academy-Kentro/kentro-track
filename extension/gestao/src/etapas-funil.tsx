@@ -66,7 +66,8 @@ export function EtapasFunil({ api }: { api: Api }) {
     setSalvando(true);
     setErro('');
     try {
-      const etapas = lista.map(({ local: _, chave: __, ...e }) => e);
+      // Linha em branco da caixa de frases fica só na tela.
+      const etapas = lista.map(({ local: _, chave: __, ...e }) => (e.frases ? { ...e, frases: e.frases.map((f) => f.trim()).filter(Boolean) } : e));
       receber((await api<{ etapas: EtapaFunil[] }>('/v1/etapas', { method: 'PUT', body: { etapas } })).etapas);
       avisar('Etapas do funil salvas.');
     } catch (e) {
@@ -145,6 +146,29 @@ export function EtapasFunil({ api }: { api: Api }) {
                 Ativa
               </Interruptor>
               {e.chave && <span class="kt-muted kt-etapa-chave" title="Nome do evento na automação da Kentro">evento: {e.chave}</span>}
+            </div>
+            <div class="kt-etapa-frases">
+              <label class="kt-campo">
+                <span>Frases gatilho, uma por linha</span>
+                <textarea rows={2} value={(e.frases ?? []).join('\n')} onInput={(ev) => mudar(e.local, { frases: (ev.target as HTMLTextAreaElement).value.split('\n') })} />
+                <span class="kt-campo-ajuda kt-muted">Quando o atendente enviar uma destas frases, o lead vem para esta etapa. Só leva adiante, nunca volta o lead no funil.</span>
+              </label>
+              {e.tipo === 'venda' && (
+                <label class="kt-campo">
+                  <span>Valor padrão da venda (R$)</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={e.valorPadrao ?? ''}
+                    onInput={(ev) => {
+                      const v = (ev.target as HTMLInputElement).value;
+                      mudar(e.local, { valorPadrao: v === '' ? null : Number(v) });
+                    }}
+                  />
+                  <span class="kt-campo-ajuda kt-muted">Em branco, vale o valor escrito na mesma mensagem da frase (R$ 297 ou 297,90).</span>
+                </label>
+              )}
             </div>
           </li>
         ))}

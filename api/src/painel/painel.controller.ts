@@ -88,8 +88,13 @@ export class FiltroLeadsDto extends FiltroDto {
   vendaAte?: string;
 
   @IsOptional()
-  @IsIn(['recentes', 'antigos', 'maior_venda', 'nome'])
+  @IsIn(['recentes', 'antigos', 'maior_venda', 'nome', 'ultima_mensagem'])
   ordem?: string;
+
+  /** Só as conversas em que o cliente escreveu e a equipe ainda não respondeu. */
+  @IsOptional()
+  @IsIn(['1'])
+  aguardando?: string;
 }
 
 export class ExportarLeadsDto extends FiltroLeadsDto {

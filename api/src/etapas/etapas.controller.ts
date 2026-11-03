@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Put, Req, UseGuards } from '@nestjs/common';
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, Length, Matches, ValidateIf, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Length, Matches, Max, Min, ValidateIf, ValidateNested } from 'class-validator';
 import { ChaveContaGuard, Papeis, RequisicaoDaConta } from '../contas/chave-conta.guard';
 import { etapaPublica, EtapasService, EVENTO_META, MAX_ETAPAS } from './etapas.service';
 
@@ -33,6 +33,21 @@ export class EtapaDto {
   @ValidateIf((_, v) => v !== null)
   @Matches(EVENTO_META, { message: 'Nome de evento do Meta: letras, números e "_", começando por letra.' })
   eventoMeta?: string | null;
+
+  /** Curta demais, casaria com quase toda mensagem. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  @Length(3, 120, { each: true, message: 'Cada frase gatilho precisa ter de 3 a 120 caracteres.' })
+  frases?: string[];
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(1_000_000_000)
+  valorPadrao?: number | null;
 
   @IsOptional()
   @IsBoolean()

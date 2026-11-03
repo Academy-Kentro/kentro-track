@@ -110,7 +110,7 @@ export function PainelExportar({ api, q, filtro }: { api: Api; q: string; filtro
                 Copiar o conteúdo
               </button>
             </div>
-            <p class="kt-muted">Se o download não começar, copie o conteúdo e salve como .csv. O telefone sai parcial, como no painel.</p>
+            <p class="kt-muted">Se o download não começar, copie o conteúdo e salve como .csv. O arquivo traz o telefone completo dos leads: guarde com cuidado.</p>
           </div>
         ))}
     </Secao>

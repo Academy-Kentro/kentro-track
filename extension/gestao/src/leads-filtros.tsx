@@ -102,6 +102,7 @@ export function PainelFiltros({
             <option value="antigos">Mais antigos</option>
             <option value="maior_venda">Maior venda</option>
             <option value="nome">Nome</option>
+            <option value="ultima_mensagem">Última mensagem</option>
           </select>
         </label>
       </div>

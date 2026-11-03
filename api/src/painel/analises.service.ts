@@ -42,7 +42,7 @@ export class AnalisesService {
     const todos = ondeLeads(filtro.de, filtro.ate, true);
     const vendaNoPeriodo = Prisma.sql`${filtroLeads(true)} AND l.etapa = 'venda' AND ${horaLocal('venda_em')}::date BETWEEN ${filtro.de}::date AND ${filtro.ate}::date`;
 
-    const [origens, entradasPorDia, vendasPorDia, etapas, motivos, ddds, horario, atendimento, campanhas, conjuntos, anuncios] = await Promise.all([
+    const [origens, entradasPorDia, vendasPorDia, etapas, motivos, ddds, horario, atendimento, [resposta], campanhas, conjuntos, anuncios] = await Promise.all([
       this.prisma.$queryRaw<{ origem: string; leads: bigint; vendas: bigint; receita: unknown }[]>`
         SELECT l.origem, COUNT(*) AS leads, COUNT(*) FILTER (WHERE l.etapa = 'venda') AS vendas,
                COALESCE(SUM(l.valor_venda) FILTER (WHERE l.etapa = 'venda'), 0) AS receita
@@ -68,6 +68,12 @@ export class AnalisesService {
       this.prisma.$queryRaw<{ segundos: unknown }[]>`
         SELECT EXTRACT(EPOCH FROM (l.atendido_em - l.recebido_em)) AS segundos FROM leads l
         WHERE ${todos} AND l.atendido_em IS NOT NULL`,
+      this.prisma.$queryRaw<{ respondidos: bigint; primeira: unknown; segunda: unknown; aguardando: bigint }[]>`
+        SELECT COUNT(l.primeira_resposta_em) AS respondidos,
+               AVG(EXTRACT(EPOCH FROM (l.primeira_resposta_em - l.recebido_em))) AS primeira,
+               AVG(EXTRACT(EPOCH FROM (l.segunda_resposta_em - l.recebido_em))) AS segunda,
+               COUNT(*) FILTER (WHERE l.primeira_resposta_em IS NULL AND l.ultima_mensagem_lead_em IS NOT NULL) AS aguardando
+        FROM leads l WHERE ${todos}`,
       this.ranking(contaId, escopo, filtro, 'campanha'),
       this.ranking(contaId, escopo, filtro, 'conjunto'),
       this.ranking(contaId, escopo, filtro, 'anuncio'),
@@ -121,6 +127,12 @@ export class AnalisesService {
       },
       horario: horario.map((h) => ({ diaSemana: num(h.dia_semana), hora: num(h.hora), leads: num(h.n) })),
       tempoAtendimento: { faixas, naoAtendidos: Math.max(0, naoAtendidos) },
+      tempoResposta: {
+        respondidos: num(resposta.respondidos),
+        aguardando: num(resposta.aguardando),
+        minutosPrimeira: resposta.primeira == null ? null : Math.round(num(resposta.primeira) / 60),
+        minutosSegunda: resposta.segunda == null ? null : Math.round(num(resposta.segunda) / 60),
+      },
       ranking: { campanhas, conjuntos, anuncios },
     };
   }

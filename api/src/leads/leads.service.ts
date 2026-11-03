@@ -8,6 +8,7 @@ import { ErroApi } from '../comum/erros';
 import { PrismaService } from '../comum/prisma.service';
 import { etapaPublica, EtapasService } from '../etapas/etapas.service';
 import { PainelService } from '../painel/painel.service';
+import { etapaDaFrase, valorDaMensagem } from './frases';
 import { mascararTelefone, normalizarTelefone } from './telefone';
 
 /** O anúncio como a extensão (campo `ad` da mensagem) ou a automação (message_ad_*) o descrevem. */
@@ -480,6 +481,48 @@ export class LeadsService {
       }
     }
     return { alterados, jaNaEtapa, naoEncontrados: new Set(ids).size - leads.length, erros };
+  }
+
+  /**
+   * Cada mensagem da conversa, avisada pela automação da Kentro. O texto só serve para procurar as
+   * frases gatilho: não é gravado nem vai para o log, e só os horários ficam.
+   * Só "in" (cliente) e "out" (atendente) contam: mensagem de automação ou de IA não é resposta da equipe.
+   */
+  async registrarMensagem(contaId: string, dados: Atendimento, direcao: string, texto: string, autor: Autor): Promise<Lead | null> {
+    if (direcao !== 'in' && direcao !== 'out') return null;
+    const lead = await this.registrarAtendimento(contaId, dados, autor, false);
+    if (direcao === 'in') {
+      await this.prisma.$executeRaw`
+        UPDATE leads SET ultima_mensagem_em = now() AT TIME ZONE 'UTC', ultima_mensagem_lead_em = now() AT TIME ZONE 'UTC' WHERE id = ${lead.id}::uuid`;
+      return lead;
+    }
+    // Numa instrução só: duas mensagens seguidas do atendente não podem disputar quem é a primeira.
+    await this.prisma.$executeRaw`
+      UPDATE leads SET
+        ultima_mensagem_em = now() AT TIME ZONE 'UTC',
+        primeira_resposta_em = COALESCE(primeira_resposta_em, now() AT TIME ZONE 'UTC'),
+        segunda_resposta_em = CASE WHEN primeira_resposta_em IS NOT NULL THEN COALESCE(segunda_resposta_em, now() AT TIME ZONE 'UTC') ELSE segunda_resposta_em END,
+        atendido_em = COALESCE(atendido_em, now() AT TIME ZONE 'UTC'),
+        etapa = CASE WHEN etapa = 'novo' THEN 'em_atendimento'::"EtapaLead" ELSE etapa END
+      WHERE id = ${lead.id}::uuid`;
+    const atual = await this.porId(contaId, lead.id);
+    return this.aplicarFrase(contaId, atual, texto);
+  }
+
+  /** A frase só leva adiante: "seu orçamento" mandado depois da venda não desfaz a venda. Lead perdido pode voltar. */
+  private async aplicarFrase(contaId: string, lead: Lead, texto: string): Promise<Lead> {
+    const etapas = await this.etapas.listar(contaId);
+    const alvo = etapaDaFrase(texto, etapas);
+    if (!alvo || alvo.id === lead.etapaId) return lead;
+    const atual = etapas.find((e) => e.id === lead.etapaId);
+    if (alvo.tipo === 'perda' ? lead.etapa === 'venda' : atual && atual.tipo !== 'perda' && atual.ordem > alvo.ordem) return lead;
+    const extra =
+      alvo.tipo === 'venda'
+        ? { valor: alvo.valorPadrao != null ? Number(alvo.valorPadrao) : (valorDaMensagem(texto) ?? 0) }
+        : alvo.tipo === 'perda'
+          ? { motivo: `Frase gatilho da etapa ${alvo.nome}` }
+          : {};
+    return this.mudarEtapa(contaId, lead, alvo.id, extra, { tipo: 'kentro', nome: 'Frase gatilho' });
   }
 
   async porId(contaId: string, id: string): Promise<Lead> {

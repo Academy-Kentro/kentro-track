@@ -164,7 +164,7 @@ describe('etapas do funil', () => {
   it('automação da Kentro: cada etapa é um evento pela chave; os nomes de antes ainda valem', async () => {
     await funilDoCliente();
     const { body } = await comChave(http().get('/v1/kentro/integracao'), r.chaveAdmin);
-    expect(Object.keys(body.exemplos)).toEqual(['chat_iniciado', 'engajou', 'agendou', 'visitou', 'venda', 'descartado']);
+    expect(Object.keys(body.exemplos)).toEqual(['chat_iniciado', 'mensagem', 'engajou', 'agendou', 'visitou', 'venda', 'descartado']);
     expect(body.exemplos.venda).toMatchObject({ evento: 'venda', valor: '{{opportunity_value}}' });
     expect(body.exemplos.descartado).toMatchObject({ evento: 'descartado', motivo: 'Sem interesse' });
 

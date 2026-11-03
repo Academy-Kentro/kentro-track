@@ -240,18 +240,23 @@ describe('leads no painel de gestão', () => {
   describe('exportar', () => {
     const linhasDe = (csv: string) => csv.replace(/^﻿/, '').trim().split('\r\n');
 
-    it('leads: BOM, ponto e vírgula, telefone mascarado, datas no fuso da conta e fórmula neutralizada', async () => {
+    it('leads: BOM, ponto e vírgula, telefone completo em texto, datas no fuso da conta e fórmula neutralizada', async () => {
       await semear(r);
       const res = await pegar(`leads/exportar?${PERIODO}&tipo=leads`);
       expect(res.status).toBe(200);
       expect(res.body).toMatchObject({ arquivo: 'leads-2026-10-10-a-2026-10-18.csv', linhas: 3, truncado: false });
       expect(res.body.csv.startsWith('﻿')).toBe(true);
       const linhas = linhasDe(res.body.csv);
-      expect(linhas[0]).toBe('Chegou em;Lead;Telefone;Origem;Campanha;Conjunto;Anúncio;Atendente;Etapa;Venda em;Valor da venda;Motivo do descarte');
+      expect(linhas[0]).toBe('Chegou em;Lead;Telefone;Origem;Campanha;Conjunto;Anúncio;Atendente;Etapa;Venda em;Valor da venda;Motivo do descarte;Primeira resposta;Última mensagem');
       // A aspa dobra porque a célula tem aspas; o apóstrofo impede o Excel de executar.
       expect(linhas[1]).toContain(`"'=HYPERLINK(""http://x"")"`);
-      expect(linhas[3]).toBe('12/10/2026 12:00;Maria Souza;(38) 9****-0000;Anúncio (WhatsApp);Black Friday;Quente;Vídeo;Ana;Novo;;;');
-      expect(res.body.csv).not.toContain('5538999990000');
+      expect(linhas[3]).toBe('12/10/2026 12:00;Maria Souza;55 38 99999-0000;Anúncio (WhatsApp);Black Friday;Quente;Vídeo;Ana;Novo;;;;;');
+    });
+
+    it('o telefone do CSV colado na troca em lote acha o mesmo lead', async () => {
+      const { maria } = await semear(r);
+      const conferido = await postar('lote/conferir', { telefones: ['55 38 99999-0000'] });
+      expect(conferido.body.encontrados.map((l: { id: string }) => l.id)).toEqual([maria.id]);
     });
 
     it('leads: respeita os filtros da tela', async () => {
@@ -279,7 +284,7 @@ describe('leads no painel de gestão', () => {
       await prisma.eventoLead.updateMany({ where: { leadId: maria.id }, data: { em: new Date('2026-10-15T15:00:00Z') } });
       const res = await pegar(`leads/exportar?${PERIODO}&tipo=jornada`);
       expect(res.body.linhas).toBe(1);
-      expect(linhasDe(res.body.csv)[1]).toMatch(/^15\/10\/2026 12:00;Maria Souza;\(38\) 9\*\*\*\*-0000;.*\(Gil\);Gestor$/);
+      expect(linhasDe(res.body.csv)[1]).toMatch(/^15\/10\/2026 12:00;Maria Souza;55 38 99999-0000;.*\(Gil\);Gestor$/);
     });
 
     it('sem tipo, ou com tipo desconhecido, é recusado; a chave de atendimento não exporta', async () => {

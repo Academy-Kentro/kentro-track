@@ -26,6 +26,8 @@ export interface EtapaEnviada {
   tipo: TipoEtapa;
   qualificada?: boolean;
   eventoMeta?: string | null;
+  frases?: string[];
+  valorPadrao?: number | null;
   botaoAtendente?: boolean;
   noPainel?: boolean;
   ativa?: boolean;
@@ -52,6 +54,8 @@ export function etapaPublica(e: EtapaFunil) {
     ordem: e.ordem,
     qualificada: e.qualificada,
     eventoMeta: e.eventoMeta,
+    frases: e.frases,
+    valorPadrao: e.valorPadrao == null ? null : Number(e.valorPadrao),
     botaoAtendente: e.botaoAtendente,
     noPainel: e.noPainel,
     ativa: e.ativa,
@@ -98,6 +102,16 @@ export class EtapasService {
     if (enviadas.length > MAX_ETAPAS) throw new ErroApi(400, 'ETAPAS_DEMAIS', `No máximo ${MAX_ETAPAS} etapas.`);
 
     const nomes = new Set<string>();
+    // Duas etapas com a mesma frase: a mensagem levaria o lead sempre para a mais adiantada, sem aviso.
+    const frases = new Map<string, string>();
+    for (const e of enviadas) {
+      for (const f of e.frases ?? []) {
+        const chave = f.trim().toLowerCase();
+        const dona = frases.get(chave);
+        if (dona && dona !== e.nome) throw new ErroApi(400, 'FRASE_REPETIDA', `A frase "${f.trim()}" está em duas etapas: ${dona} e ${e.nome}.`);
+        frases.set(chave, e.nome);
+      }
+    }
     for (const e of enviadas) {
       const nome = e.nome.trim();
       if (!nome) throw new ErroApi(400, 'NOME_OBRIGATORIO', 'Toda etapa precisa de um nome.');
@@ -134,6 +148,9 @@ export class EtapasService {
           // Venda já conta como qualificado; perda não entra na contagem.
           qualificada: e.tipo === 'andamento' && !!e.qualificada,
           eventoMeta: e.eventoMeta?.trim() || null,
+          // Sem o campo (extensão de versão anterior): mantém o que está gravado.
+          ...(e.frases ? { frases: [...new Set(e.frases.map((f) => f.trim()))] } : {}),
+          ...(e.valorPadrao !== undefined ? { valorPadrao: e.tipo === 'venda' && e.valorPadrao != null ? new Prisma.Decimal(e.valorPadrao.toFixed(2)) : null } : {}),
           botaoAtendente: e.botaoAtendente ?? true,
           noPainel: e.noPainel ?? true,
           ativa: e.ativa ?? true,

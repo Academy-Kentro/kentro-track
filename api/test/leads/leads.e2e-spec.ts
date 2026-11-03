@@ -1,7 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
-import { mascararTelefone, normalizarTelefone } from '../../src/leads/telefone';
+import { mascararTelefone, normalizarTelefone, telefoneParaPlanilha } from '../../src/leads/telefone';
 import { criarAppDeTeste } from '../app';
 import { limparBanco } from '../limpar';
 import { comChave, registrarConta, Registro } from '../meta/apoio';
@@ -29,6 +29,13 @@ describe('telefone', () => {
   it('máscara para o gestor', () => {
     expect(mascararTelefone('5538999990000')).toBe('(38) 9****-0000');
     expect(mascararTelefone('14155550100')).toBe('****0100');
+  });
+
+  it('completo para planilha: texto com DDI, com ou sem o nono dígito', () => {
+    expect(telefoneParaPlanilha('5538999990000')).toBe('55 38 99999-0000');
+    expect(telefoneParaPlanilha('553899990000')).toBe('55 38 9999-0000');
+    expect(telefoneParaPlanilha('14155550100')).toBe('14155550100');
+    expect(telefoneParaPlanilha(null)).toBeNull();
   });
 });
 

@@ -25,6 +25,11 @@ function eventos(dados: Integracao): { id: string; titulo: string; onde: string 
       titulo: 'Atendimento iniciado (recomendado)',
       onde: 'No começo da URA/automação de entrada da fila do WhatsApp, antes de qualquer menu. Conta também os leads que só a IA atendeu.',
     },
+    {
+      id: 'mensagem',
+      titulo: 'Mensagens: frases gatilho e 1ª resposta (recomendado)',
+      onde: 'Numa automação só com este elemento, disparada por dois gatilhos de mensagens: "todas as mensagens enviadas" e "todas as mensagens recebidas". O texto só é lido para procurar as frases gatilho: o Kentro Track guarda os horários, não as mensagens.',
+    },
     ...(dados.etapas ?? []).map((e) => ({ id: e.chave, titulo: `${e.nome} (opcional)`, onde: ONDE[e.tipo] })),
   ].filter((e) => dados.exemplos[e.id]);
 }

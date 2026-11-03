@@ -42,13 +42,13 @@ export class AnalisesService {
     const todos = ondeLeads(filtro.de, filtro.ate, true);
     const vendaNoPeriodo = Prisma.sql`${filtroLeads(true)} AND l.etapa = 'venda' AND ${horaLocal('venda_em')}::date BETWEEN ${filtro.de}::date AND ${filtro.ate}::date`;
 
-    const [origens, entradasPorDia, vendasPorDia, etapas, motivos, ddds, horario, atendimento, [resposta], campanhas, conjuntos, anuncios] = await Promise.all([
+    const [origens, entradasPorDia, vendasPorDia, etapas, motivos, ddds, horario, atendimento, [resposta], [jornada], etapasDoFunil, funilContato, funilVenda, campanhas, conjuntos, anuncios] = await Promise.all([
       this.prisma.$queryRaw<{ origem: string; leads: bigint; vendas: bigint; receita: unknown }[]>`
         SELECT l.origem, COUNT(*) AS leads, COUNT(*) FILTER (WHERE l.etapa = 'venda') AS vendas,
                COALESCE(SUM(l.valor_venda) FILTER (WHERE l.etapa = 'venda'), 0) AS receita
         FROM leads l WHERE ${todos} GROUP BY 1`,
-      this.prisma.$queryRaw<{ dia: Date; n: bigint }[]>`
-        SELECT ${horaLocal('recebido_em')}::date AS dia, COUNT(*) AS n FROM leads l WHERE ${todos} GROUP BY 1`,
+      this.prisma.$queryRaw<{ dia: Date; origem: string; n: bigint }[]>`
+        SELECT ${horaLocal('recebido_em')}::date AS dia, l.origem, COUNT(*) AS n FROM leads l WHERE ${todos} GROUP BY 1, 2`,
       // Vendas e faturamento pelo dia em que a venda foi registrada (não pelo dia em que o lead chegou).
       this.prisma.$queryRaw<{ dia: Date; n: bigint; receita: unknown }[]>`
         SELECT ${horaLocal('venda_em')}::date AS dia, COUNT(*) AS n, COALESCE(SUM(l.valor_venda), 0) AS receita
@@ -74,6 +74,13 @@ export class AnalisesService {
                AVG(EXTRACT(EPOCH FROM (l.segunda_resposta_em - l.recebido_em))) AS segunda,
                COUNT(*) FILTER (WHERE l.primeira_resposta_em IS NULL AND l.ultima_mensagem_lead_em IS NOT NULL) AS aguardando
         FROM leads l WHERE ${todos}`,
+      // Das vendas do período: a venda antiga de um lead novo não entra, e o ciclo longo de um lead antigo, sim.
+      this.prisma.$queryRaw<{ vendas: bigint; segundos: unknown }[]>`
+        SELECT COUNT(*) AS vendas, AVG(GREATEST(0, EXTRACT(EPOCH FROM (l.venda_em - l.recebido_em)))) AS segundos
+        FROM leads l WHERE ${vendaNoPeriodo}`,
+      this.painel.etapasDoPainel(contaId),
+      this.painel.contarPorEtapa(contaId, todos, false),
+      this.painel.contarPorEtapa(contaId, vendaNoPeriodo, false),
       this.ranking(contaId, escopo, filtro, 'campanha'),
       this.ranking(contaId, escopo, filtro, 'conjunto'),
       this.ranking(contaId, escopo, filtro, 'anuncio'),
@@ -83,7 +90,14 @@ export class AnalisesService {
     const totalLeads = origens.reduce((a, o) => a + num(o.leads), 0);
     const rastreados = origens.filter((o) => o.origem !== 'organico').reduce((a, o) => a + num(o.leads), 0);
 
-    const mapaEntradas = new Map(entradasPorDia.map((l) => [comoDia(l.dia), num(l.n)]));
+    const mapaEntradas = new Map<string, { entradas: number; origens: Record<string, number> }>();
+    for (const l of entradasPorDia) {
+      const dia = comoDia(l.dia);
+      const atual = mapaEntradas.get(dia) ?? { entradas: 0, origens: {} };
+      atual.entradas += num(l.n);
+      atual.origens[l.origem] = num(l.n);
+      mapaEntradas.set(dia, atual);
+    }
     const mapaVendas = new Map(vendasPorDia.map((l) => [comoDia(l.dia), { vendas: num(l.n), receita: dinheiro(num(l.receita)) }]));
 
     const porUf = new Map<string, { leads: number; vendas: number }>();
@@ -107,6 +121,10 @@ export class AnalisesService {
     }
     const naoAtendidos = totalLeads - atendimento.length;
 
+    // As etapas de perda ficam de fora: não são um passo do funil.
+    const passos = etapasDoFunil.filter((e) => e.tipo !== 'perda');
+    const funilDe = (contagem: { etapaId: string; n: number }[]) => passos.map((e) => ({ id: e.id, nome: e.nome, tipo: e.tipo, leads: contagem.find((c) => c.etapaId === e.id)?.n ?? 0 }));
+
     return {
       moeda: escopo.moeda,
       periodo: { de: filtro.de, ate: filtro.ate },
@@ -117,7 +135,7 @@ export class AnalisesService {
           .map((o) => ({ origem: o.origem, leads: num(o.leads), vendas: num(o.vendas), receita: dinheiro(num(o.receita)) }))
           .sort((a, b) => b.leads - a.leads),
       },
-      porDia: cadaDia(filtro.de, filtro.ate).map((dia) => ({ data: dia, entradas: mapaEntradas.get(dia) ?? 0, ...(mapaVendas.get(dia) ?? { vendas: 0, receita: 0 }) })),
+      porDia: cadaDia(filtro.de, filtro.ate).map((dia) => ({ data: dia, ...(mapaEntradas.get(dia) ?? { entradas: 0, origens: {} }), ...(mapaVendas.get(dia) ?? { vendas: 0, receita: 0 }) })),
       etapas: Object.fromEntries(etapas.map((e) => [e.etapa, num(e.n)])),
       motivosDescarte: motivos.map((m) => ({ motivo: m.motivo, leads: num(m.n) })),
       estados: {
@@ -133,6 +151,9 @@ export class AnalisesService {
         minutosPrimeira: resposta.primeira == null ? null : Math.round(num(resposta.primeira) / 60),
         minutosSegunda: resposta.segunda == null ? null : Math.round(num(resposta.segunda) / 60),
       },
+      tempoJornada: { vendas: num(jornada.vendas), minutos: jornada.segundos == null ? null : Math.round(num(jornada.segundos) / 60) },
+      /** Quem chegou a cada etapa ou além: dos leads que chegaram no período, ou dos que compraram nele. */
+      funil: { contato: funilDe(funilContato), venda: funilDe(funilVenda) },
       ranking: { campanhas, conjuntos, anuncios },
     };
   }

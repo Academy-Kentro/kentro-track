@@ -208,6 +208,45 @@ describe('gestão: visão geral', () => {
 });
 
 describe('gestão: campanhas e criativos', () => {
+  describe('alcance e frequência', () => {
+    const ALCANCE = { campanha: { '1001': { alcance: 1500, frequencia: 1.8 }, '1002': { alcance: 9000, frequencia: 1 } }, conjunto: { '2001': { alcance: 700, frequencia: 2 } }, anuncio: {}, indisponivel: false };
+    const abrir = async (alcance?: object) => {
+      const falso = await montar({ http: api({ '/v1/conta': CONTA, '/v1/painel/filtros': FILTROS, '/v1/painel/campanhas': CAMPANHAS, ...(alcance ? { '/v1/painel/campanhas/alcance': alcance } : {}) }) });
+      await clicar(botao('Campanhas'));
+      return falso;
+    };
+    const colunas = () => [...raiz.querySelectorAll('thead th')].map((t) => t.textContent!.replace(/ [↑↓]$/, ''));
+    const celula = (nome: string, coluna: string) => {
+      const linha = [...raiz.querySelectorAll('tbody tr')].find((l) => l.querySelector('.kt-nome')!.textContent === nome)!;
+      return linha.querySelectorAll('td')[colunas().indexOf(coluna)].textContent;
+    };
+
+    it('mostra as colunas novas, por nível, e ordena por elas', async () => {
+      await abrir(ALCANCE);
+      expect(colunas()).toEqual(expect.arrayContaining(['Alcance', 'Frequência', 'CPM', 'CPC']));
+      expect(celula('Black Friday', 'Alcance')).toBe('1.500');
+      expect(celula('Black Friday', 'Frequência')).toBe('1,80');
+      await clicar(raiz.querySelector('tbody .kt-abrir') as Element);
+      expect(celula('Público quente', 'Alcance')).toBe('700');
+      await clicar(botao('Alcance'));
+      expect(raiz.querySelector('tbody .kt-nome')!.textContent).toBe('Remarketing');
+    });
+
+    it('sem resposta do Meta, só essas colunas ficam vazias', async () => {
+      await abrir();
+      expect(celula('Black Friday', 'Alcance')).toBe('—');
+      expect(celula('Black Friday', 'Frequência')).toBe('—');
+      expect(raiz.querySelector('.kt-aviso-erro')).toBeNull();
+      expect(raiz.querySelectorAll('tbody .kt-nome')).toHaveLength(2);
+    });
+
+    it('resposta parcial avisa', async () => {
+      await abrir({ ...ALCANCE, indisponivel: true });
+      expect(texto()).toContain('não entregou todo o alcance');
+      expect(celula('Black Friday', 'Alcance')).toBe('1.500');
+    });
+  });
+
   it('a tabela abre campanha › conjunto › anúncio e reordena pela coluna', async () => {
     await montar({ http: api({ '/v1/conta': CONTA, '/v1/painel/filtros': FILTROS, '/v1/painel/campanhas': CAMPANHAS }) });
     await clicar(botao('Campanhas'));
@@ -421,169 +460,57 @@ describe('gestão: links rastreáveis', () => {
   });
 });
 
-describe('gestão: Inspetor de Vendas', () => {
-  const ETAPAS = [
-    { id: 'e-orc', nome: 'Orçamento', tipo: 'andamento' },
-    { id: 'e-venda', nome: 'Venda', tipo: 'venda' },
-  ];
-  const SUGESTAO = { id: 's1', leadId: 'l1', nome: 'Maria', telefone: '(38) 9****-0000', chatId: '501', confianca: 'alta', evidencia: 'Pagamento confirmado', evidenciaEm: '2026-10-10T12:00:00Z', valorSugerido: 297 };
-  const ESTADO = { disponivel: true, ativo: true, limite: 500, usadas: 42, etapas: ETAPAS, sugestoes: [SUGESTAO] };
-  const ROTAS = { '/v1/conta': CONTA, '/v1/painel/filtros': FILTROS, '/v1/inspetor': ESTADO, '/v1/inspetor/s1/aprovar': { ok: true }, '/v1/inspetor/s1/recusar': { ok: true }, '/v1/inspetor/ligado': ESTADO };
-  const abrir = async (rotas: Record<string, unknown> = ROTAS, opcoes: Partial<OpcoesFalso> = {}) => {
-    const falso = await montar({ http: api(rotas), ...opcoes });
-    await clicar(botao('Inspetor'));
-    return falso;
-  };
-  const ultima = (falso: { chamadas: ChamadaHttp[] }, trecho: string) => falso.chamadas.filter((c) => c.url.includes(trecho)).at(-1)!;
-
-  it('mostra o uso e a evidência; aprovar vai com a etapa de venda e o valor sugerido', async () => {
-    const falso = await abrir();
-    expect(texto()).toContain('42 de 500 conversas analisadas');
-    expect(raiz.querySelector('.kt-evidencia')!.textContent).toBe('Pagamento confirmado');
-    await clicar([...raiz.querySelectorAll('.kt-sugestao button')].find((b) => b.textContent === 'Aprovar'));
-    expect(ultima(falso, '/s1/aprovar').corpo).toEqual({ etapa: 'e-venda', valor: 297 });
-  });
-
-  it('recusar pede só o id', async () => {
-    const falso = await abrir();
-    await clicar(botao('Recusar'));
-    expect(falso.chamadas.some((c) => c.url.endsWith('/s1/recusar'))).toBe(true);
-  });
-
-  it('analisar lê as conversas pela Kentro, manda só o texto e conta o resultado', async () => {
-    const falso = await abrir(
-      { ...ROTAS, '/v1/inspetor/candidatos': { itens: [{ leadId: 'l1', chatId: '501' }] }, '/v1/inspetor/analisar': { analisada: true, sugestao: { id: 's2' } } },
-      {
-        mensagens: [
-          { id: 2, direction: 'out', text: 'Pago!', at: '2026-10-10T12:01:00Z' },
-          { id: 1, direction: 'in', text: 'Quero', at: '2026-10-10T12:00:00Z' },
-          { id: 3, direction: 'in', text: null },
-        ],
-      },
-    );
-    await clicar(botao('Analisar conversas'));
-    expect(ultima(falso, '/inspetor/analisar').corpo).toEqual({
-      leadId: 'l1',
-      mensagens: [
-        { id: '1', direcao: 'in', texto: 'Quero', em: '2026-10-10T12:00:00.000Z' },
-        { id: '2', direcao: 'out', texto: 'Pago!', em: '2026-10-10T12:01:00.000Z' },
-      ],
-    });
-    expect(texto()).toContain('1 conversa analisada, 1 com possível venda.');
-  });
-
-  it('a Kentro devolve vazio ou recusa: não manda para análise, conta e deixa a conversa na fila', async () => {
-    const falso = await abrir({ ...ROTAS, '/v1/inspetor/candidatos': { itens: [{ leadId: 'l1', chatId: '501' }, { leadId: 'l2', chatId: '502' }] } }, { mensagens: [] });
-    let chamada = 0;
-    falso.omni.chats.getMessages = async () => {
-      if (++chamada === 2) throw { code: 'not_found' };
-      return [];
-    };
-    await clicar(botao('Analisar conversas'));
-    expect(falso.chamadas.some((c) => c.url.includes('/inspetor/analisar'))).toBe(false);
-    expect(texto()).toContain('0 conversas analisadas, 0 com possível venda. 2 não puderam ser lidas pela Kentro e continuam na fila.');
-  });
-
-  it('atingiu o limite: para e explica', async () => {
-    await montar({
-      http: (c) => {
-        if (c.url.includes('/inspetor/analisar')) return erro(429, 'LIMITE_MENSAL', 'A conta chegou ao limite.');
-        if (c.url.includes('/inspetor/candidatos')) return ok({ itens: [{ leadId: 'l1', chatId: '501' }] });
-        return api(ROTAS)(c);
-      },
-      mensagens: [{ id: 1, direction: 'in', text: 'Oi' }],
-    });
-    await clicar(botao('Inspetor'));
-    await clicar(botao('Analisar conversas'));
-    expect(raiz.querySelector('.kt-aviso-erro')!.textContent).toContain('A conta chegou ao limite.');
-  });
-
-  it('desligado: o admin vê o que vai para a IA antes de ligar, e o gestor só o recado', async () => {
-    const desligado = { ...ESTADO, ativo: false, sugestoes: [] };
-    const falso = await abrir({ ...ROTAS, '/v1/inspetor': desligado });
-    expect(botao('Analisar conversas')).toBeUndefined();
-    expect(texto()).toContain('enviado à Anthropic');
-    await act(async () => {
-      (raiz.querySelector('.kt-inspetor-ligar input') as HTMLInputElement).click();
-    });
-    await assentar(act);
-    expect(ultima(falso, '/inspetor/ligado').corpo).toEqual({ ativo: true });
-    render(null, raiz);
-    await abrir({ ...ROTAS, '/v1/conta': { ...CONTA, papel: 'gestor' }, '/v1/inspetor': desligado });
-    expect(raiz.querySelector('.kt-inspetor-ligar')).toBeNull();
-    expect(texto()).toContain('O administrador precisa ligar');
-  });
-
-  it('sem a chave da IA no servidor, avisa e não deixa analisar', async () => {
-    await abrir({ ...ROTAS, '/v1/inspetor': { ...ESTADO, disponivel: false } });
-    expect(texto()).toContain('ANTHROPIC_API_KEY');
-    expect(botao('Analisar conversas')!.hasAttribute('disabled')).toBe(true);
-  });
-
-  it('aprovar todas pede confirmação e respeita o filtro de confiança', async () => {
-    const baixa = { ...SUGESTAO, id: 's2', confianca: 'baixa' };
-    const falso = await abrir({ ...ROTAS, '/v1/inspetor': { ...ESTADO, sugestoes: [SUGESTAO, baixa] } }, { confirmar: true });
-    const filtro = [...raiz.querySelectorAll('select')].find((s) => s.textContent?.includes('Todas as confianças'))!;
-    await act(async () => {
-      filtro.value = 'alta';
-      filtro.dispatchEvent(new Event('change', { bubbles: true }));
-    });
-    await clicar(botao('Aprovar todas'));
-    const aprovadas = falso.chamadas.filter((c) => c.url.endsWith('/aprovar'));
-    expect(aprovadas.map((c) => new URL(c.url).pathname)).toEqual(['/v1/inspetor/s1/aprovar']);
-  });
-
-  it('aprovar todas sem confirmar não faz nada', async () => {
-    const falso = await abrir(ROTAS, { confirmar: false });
-    await clicar(botao('Aprovar todas'));
-    expect(falso.chamadas.some((c) => c.url.endsWith('/aprovar'))).toBe(false);
-  });
-});
-
 describe('gestão: webhooks e primeiros passos', () => {
-  const WEBHOOK = { id: 'w1', nome: 'Planilha', urlCriada: 'https://a/1', urlAlterada: null, urlMensagem: null, urlOrigem: null, origens: [], ativo: false, motivoDesativado: 'Desligado depois de 4 tentativas', segredo: 'abc' };
-  const ENVIO = { id: '9', webhook: 'Planilha', evento: 'lead_create', status: 'erro', tentativas: 4, respostaStatus: 500, erro: 'O destino respondeu 500.', criadoEm: '2026-10-10T12:00:00Z' };
-
-  it('mostra o motivo de ter desligado e reenvia o que deu erro', async () => {
-    const falso = await montar({
+  const ENVIO = { id: '9', nome: 'Maria', telefone: '(38) 9****-0000', status: 'erro', tentativas: 6, respostaStatus: 500, erro: 'O destino respondeu 500.', criadoEm: '2026-10-10T12:00:00Z' };
+  const SALVO = { url: 'https://crm.exemplo/leads', segredo: 'abc', envios: [ENVIO] };
+  const campoDoWebhook = () => [...raiz.querySelectorAll('label.kt-campo')].find((l) => l.textContent!.includes('Endereço do webhook'))!.querySelector('input') as HTMLInputElement;
+  const noWebhook = (rotulo: string) => [...campoDoWebhook().closest('section')!.querySelectorAll('button')].find((b) => b.textContent!.includes(rotulo)) as HTMLButtonElement;
+  const abrirWebhook = (dados: object) =>
+    montar({
       http: (c) => {
         const caminho = new URL(c.url).pathname;
-        if (caminho === '/v1/webhooks') return ok({ maximo: 3, webhooks: [WEBHOOK], envios: [ENVIO] });
-        if (caminho.endsWith('/reenviar')) return ok({ ok: true });
+        if (caminho === '/v1/webhooks') return ok(c.method === 'PUT' ? { ...dados, url: (c.corpo as { url: string | null }).url } : dados);
+        if (caminho === '/v1/webhooks/testar' || caminho.endsWith('/reenviar')) return ok({ ok: true });
         return api({ '/v1/conta': CONTA, '/v1/painel/filtros': FILTROS })(c);
       },
     });
+
+  it('mostra o envio com erro e reenvia', async () => {
+    const falso = await abrirWebhook(SALVO);
     await clicar(botao('Configurações'));
-    expect(texto()).toContain('Desligado depois de 4 tentativas');
-    await clicar(botao('Reenviar'));
+    expect(campoDoWebhook().value).toBe('https://crm.exemplo/leads');
+    expect(texto()).toContain('O destino respondeu 500.');
+    await clicar(noWebhook('Reenviar'));
     expect(falso.chamadas.some((c) => c.method === 'POST' && c.url.endsWith('/v1/webhooks/envios/9/reenviar'))).toBe(true);
   });
 
-  it('cria com as URLs e as origens escolhidas', async () => {
-    const falso = await montar({
-      http: (c) => {
-        const caminho = new URL(c.url).pathname;
-        if (caminho === '/v1/webhooks') return c.method === 'POST' ? ok(WEBHOOK) : ok({ maximo: 3, webhooks: [], envios: [] });
-        return api({ '/v1/conta': CONTA, '/v1/painel/filtros': FILTROS })(c);
-      },
-    });
+  it('cadastra um endereço só, testa o que está digitado e salva', async () => {
+    const falso = await abrirWebhook({ url: null, segredo: 'abc', envios: [] });
     await clicar(botao('Configurações'));
-    await clicar(botao('Adicionar webhook'));
-    const form = raiz.querySelector('.kt-formulario-webhook')!;
-    const campos = form.querySelectorAll('input:not([type="checkbox"])');
+    expect(noWebhook('Salvar').disabled).toBe(true);
+    expect(noWebhook('Enviar lead de teste').disabled).toBe(true);
+    expect(noWebhook('Copiar segredo')).toBeUndefined();
     await act(async () => {
-      (campos[0] as HTMLInputElement).value = 'CRM';
-      campos[0].dispatchEvent(new Event('input', { bubbles: true }));
+      campoDoWebhook().value = 'https://crm.exemplo/novo';
+      campoDoWebhook().dispatchEvent(new Event('input', { bubbles: true }));
     });
+    await clicar(noWebhook('Enviar lead de teste'));
+    expect(falso.chamadas.find((c) => c.url.endsWith('/v1/webhooks/testar'))!.corpo).toEqual({ url: 'https://crm.exemplo/novo' });
+    await clicar(noWebhook('Salvar'));
+    expect(falso.chamadas.find((c) => c.method === 'PUT' && c.url.endsWith('/v1/webhooks'))!.corpo).toEqual({ url: 'https://crm.exemplo/novo' });
+    expect(noWebhook('Copiar segredo')).toBeDefined();
+    expect(noWebhook('Salvar').disabled).toBe(true);
+  });
+
+  it('apagar o endereço e salvar manda vazio', async () => {
+    const falso = await abrirWebhook({ ...SALVO, envios: [] });
+    await clicar(botao('Configurações'));
     await act(async () => {
-      (campos[1] as HTMLInputElement).value = 'https://crm.exemplo/novo';
-      campos[1].dispatchEvent(new Event('input', { bubbles: true }));
+      campoDoWebhook().value = '';
+      campoDoWebhook().dispatchEvent(new Event('input', { bubbles: true }));
     });
-    await act(async () => {
-      (form.querySelector('input[type="checkbox"]') as HTMLInputElement).click();
-    });
-    await clicar(botao('Salvar webhook'));
-    expect(falso.chamadas.find((c) => c.method === 'POST' && c.url.endsWith('/v1/webhooks'))!.corpo).toMatchObject({ nome: 'CRM', urlCriada: 'https://crm.exemplo/novo', origens: ['ctwa'] });
+    await clicar(noWebhook('Salvar'));
+    expect(falso.chamadas.find((c) => c.method === 'PUT' && c.url.endsWith('/v1/webhooks'))!.corpo).toEqual({ url: null });
   });
 
   it('primeiros passos: marca o que está feito, fecha e não volta; tudo pronto, nem aparece', async () => {
@@ -923,57 +850,9 @@ describe('gestão: funil do atendimento, leads, equipe e integração', () => {
       expect(botao('Aguardando 1ª resposta')).toBeUndefined();
     });
 
-    it('ver conversa: lê da Kentro, da mais antiga para a mais nova, sem passar pela API', async () => {
-      const comChat = { ...COM_ETAPAS, itens: [{ ...LEADS.itens[0], ultimaMensagemEm: '2026-10-10T16:00:00Z' }, LEADS.itens[1]] };
-      const falso = await montar({
-        http: api({ ...ROTAS, '/v1/painel/leads': comChat }),
-        mensagens: [
-          { id: 2, direction: 'out', text: 'Bom dia, Maria', at: '2026-10-10T16:01:00Z' },
-          { id: 1, direction: 'in', text: 'Quero comprar', at: '2026-10-10T16:00:00Z' },
-          { id: 3, direction: 'in', text: null, at: '2026-10-10T16:02:00Z' },
-        ],
-      });
-      await clicar(botao('Leads'));
-      const chamadas = falso.chamadas.length;
-      // O lead sem atendimento na Kentro (formulário) não tem conversa para abrir.
-      expect(raiz.querySelectorAll('button[aria-label^="Ver conversa"]')).toHaveLength(1);
-      await clicar(raiz.querySelector('button[aria-label="Ver conversa de Maria"]')!);
-      const mensagens = [...raiz.querySelectorAll('.kt-mensagem')];
-      expect(mensagens.map((m) => m.querySelector('.kt-mensagem-texto')!.textContent)).toEqual(['Quero comprar', 'Bom dia, Maria', 'Arquivo ou mídia']);
-      expect(mensagens[0]!.className).toContain('kt-mensagem-cliente');
-      expect(mensagens[1]!.className).toContain('kt-mensagem-equipe');
-      expect(falso.chamadas).toHaveLength(chamadas);
-      await clicar(raiz.querySelector('button[aria-label="Fechar a conversa"]')!);
-      expect(raiz.querySelector('.kt-conversa')).toBeNull();
-    });
-
-    it('ver conversa: atendimento que o usuário não enxerga mostra o motivo', async () => {
-      const falso = await abrirLeads();
-      falso.omni.chats.getMessages = async () => {
-        throw { code: 'not_found' };
-      };
-      await clicar(raiz.querySelector('button[aria-label="Ver conversa de Maria"]')!);
-      expect(raiz.querySelector('.kt-aviso-erro')?.textContent).toContain('não tem acesso a este atendimento');
-    });
-
-    it('ver conversa: a Kentro devolve vazio e o atendimento existe: diz isso, sem afirmar que a conversa está vazia', async () => {
-      const falso = await abrirLeads();
-      falso.omni.chats.getMessages = async () => [];
-      falso.omni.chats.get = async () => ({ id: 501 });
-      await clicar(raiz.querySelector('button[aria-label="Ver conversa de Maria"]')!);
-      expect(raiz.querySelector('.kt-aviso-erro')?.textContent).toContain('não devolveu as mensagens para esta tela');
-      expect(texto()).not.toContain('Nenhuma mensagem');
-      expect(raiz.querySelector('.kt-conversa')).toBeNull();
-    });
-
-    it('ver conversa: vazio e atendimento fora do alcance do usuário: diz que falta acesso', async () => {
-      const falso = await abrirLeads();
-      falso.omni.chats.getMessages = async () => [];
-      falso.omni.chats.get = async () => {
-        throw { code: 'not_found' };
-      };
-      await clicar(raiz.querySelector('button[aria-label="Ver conversa de Maria"]')!);
-      expect(raiz.querySelector('.kt-aviso-erro')?.textContent).toContain('não tem acesso a este atendimento');
+    it('não tem botão de ver conversa', async () => {
+      await abrirLeads();
+      expect(raiz.querySelector('button[aria-label^="Ver conversa"]')).toBeNull();
     });
 
     it('últimas atualizações: só busca ao abrir', async () => {
@@ -1241,6 +1120,76 @@ describe('gestão: aba Análises', () => {
     tempoAtendimento: { faixas: [{ id: 'ate5', rotulo: 'Até 5 min', leads: 3 }, { id: 'mais', rotulo: 'Mais de 4 h', leads: 1 }], naoAtendidos: 6 },
     ranking: { campanhas: [item('Black Friday', 2, 3000)], conjuntos: [item('Quente', 2, 3000)], anuncios: [] },
   };
+
+  describe('relatórios novos', () => {
+    const PORDIA = [
+      { data: '2026-10-01', entradas: 4, origens: { ctwa: 3, organico: 1 }, vendas: 1, receita: 1000 },
+      { data: '2026-10-02', entradas: 0, origens: {}, vendas: 0, receita: 0 },
+      { data: '2026-10-03', entradas: 6, origens: { formulario: 2, link: 1, organico: 3 }, vendas: 1, receita: 2000 },
+    ];
+    const FUNIL = {
+      contato: [{ id: 'e1', nome: 'Fez contato', leads: 10 }, { id: 'e2', nome: 'Comprou', leads: 2 }],
+      venda: [{ id: 'e1', nome: 'Fez contato', leads: 3 }, { id: 'e2', nome: 'Comprou', leads: 3 }],
+    };
+    const abrir = async (extra: object) => {
+      const falso = await montar({ http: api({ '/v1/conta': CONTA, '/v1/painel/filtros': FILTROS, '/v1/painel/analises': { ...ANALISES, ...extra } }) });
+      await clicar(botao('Análises'));
+      return falso;
+    };
+    const figura = (titulo: string) => [...raiz.querySelectorAll('figure')].find((f) => f.querySelector('h3')?.textContent === titulo) as HTMLElement;
+
+    it('origem por dia: legenda com o total de cada origem, descrição por dia e tabela', async () => {
+      await abrir({ porDia: PORDIA });
+      const f = figura('Origem dos leads por dia');
+      expect(f.querySelector('.kt-grafico-resumo')!.textContent).toBe('10 leads');
+      expect([...f.querySelectorAll('.kt-legenda li')].map((l) => l.textContent)).toEqual(['Anúncio de WhatsApp3', 'Formulário de anúncio2', 'Link rastreável1', 'Sem anúncio (orgânico)4']);
+      expect(f.querySelectorAll('.kt-pedaco')).toHaveLength(5);
+      // A mesma origem tem sempre a mesma cor, em qualquer dia.
+      expect(f.querySelectorAll('.kt-pedaco.kt-serie-neutra')).toHaveLength(2);
+      const alvos = [...f.querySelectorAll('.kt-alvo')].map((a) => a.getAttribute('aria-label'));
+      expect(alvos[0]).toContain('4 (Anúncio de WhatsApp: 3, Sem anúncio (orgânico): 1)');
+      expect(alvos[1]).toMatch(/: 0$/);
+      await clicar([...f.querySelectorAll('button')].find((b) => b.textContent!.includes('Ver tabela')));
+      const linhas = [...figura('Origem dos leads por dia').querySelectorAll('tbody tr')].map((l) => [...l.querySelectorAll('.kt-num')].map((c) => c.textContent));
+      expect(linhas).toEqual([['3', '0', '0', '1', '4'], ['0', '0', '0', '0', '0'], ['0', '2', '1', '3', '6']]);
+    });
+
+    it('a API anterior, sem esses dados, não mostra os novos gráficos', async () => {
+      await abrir({});
+      for (const titulo of ['Origem dos leads por dia', 'Funil da jornada', 'Tempo médio de jornada']) expect(figura(titulo)).toBeUndefined();
+    });
+
+    it('funil: troca entre a data do contato e a da venda, sem nova chamada', async () => {
+      const falso = await abrir({ funil: FUNIL });
+      const valores = () => [...figura('Funil da jornada').querySelectorAll('li')].map((l) => l.getAttribute('aria-label'));
+      expect(valores()).toEqual(['Fez contato: 10', 'Comprou: 2 (20,0% da etapa anterior)']);
+      const chamadas = falso.chamadas.length;
+      await clicar(botao('Data da venda'));
+      expect(valores()).toEqual(['Fez contato: 3', 'Comprou: 3 (100,0% da etapa anterior)']);
+      expect(botao('Data da venda')!.getAttribute('aria-pressed')).toBe('true');
+      expect(falso.chamadas).toHaveLength(chamadas);
+    });
+
+    it('funil: etapa anterior zerada não divide por zero', async () => {
+      await abrir({ funil: { ...FUNIL, contato: [{ id: 'e1', nome: 'Fez contato', leads: 0 }, { id: 'e2', nome: 'Comprou', leads: 1 }] } });
+      expect([...figura('Funil da jornada').querySelectorAll('li')].map((l) => l.getAttribute('aria-label'))).toEqual(['Fez contato: 0', 'Comprou: 1']);
+    });
+
+    it.each([
+      [45, '45 min'],
+      [1500, '25 h'],
+      [7140, '5 dias'],
+    ])('tempo de jornada: %i minutos mostra %s', async (minutos, esperado) => {
+      await abrir({ tempoJornada: { vendas: 3, minutos } });
+      expect(figura('Tempo médio de jornada').querySelector('.kt-tempo-valor')!.textContent).toBe(esperado);
+      expect(figura('Tempo médio de jornada').textContent).toContain('3 vendas do período');
+    });
+
+    it('tempo de jornada: sem venda no período, diz isso', async () => {
+      await abrir({ tempoJornada: { vendas: 0, minutos: null } });
+      expect(figura('Tempo médio de jornada').textContent).toContain('Nenhuma venda no período');
+    });
+  });
 
   it('tempo de resposta: troca entre a 1ª e a 2ª mensagem; sem mensagens ligadas, explica como ligar', async () => {
     const tempoResposta = { respondidos: 4, aguardando: 1, minutosPrimeira: 5, minutosSegunda: 90 };

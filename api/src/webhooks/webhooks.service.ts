@@ -2,35 +2,102 @@ import { createHmac } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { EnvioWebhook, Lead, Prisma, WebhookSaida } from '@prisma/client';
+import { EnvioWebhook, Lead, OrigemLead, Prisma } from '@prisma/client';
 import { assinar } from '../comum/assinatura';
 import { ConfigApp, CONFIG_APP } from '../comum/config';
 import { ErroApi } from '../comum/erros';
 import { Fetch, FETCH } from '../comum/fetch';
 import { PrismaService } from '../comum/prisma.service';
 import { instanteUtc } from '../comum/sql';
+import { chaveVariavel } from '../formularios/leitura';
+import { mascararTelefone } from '../leads/telefone';
 
-export type EventoWebhook = 'lead_create' | 'lead_update' | 'lead_source_update';
-
-export interface DadosWebhook {
-  nome: string;
-  urlCriada?: string | null;
-  urlAlterada?: string | null;
-  urlMensagem?: string | null;
-  urlOrigem?: string | null;
-  origens?: string[];
-  ativo?: boolean;
-}
-
-export const MAX_WEBHOOKS = 3;
-export const ORIGENS_WEBHOOK = ['ctwa', 'formulario', 'link', 'organico'];
-
-const CAMPO_DA_URL: Record<EventoWebhook, 'urlCriada' | 'urlAlterada' | 'urlOrigem'> = { lead_create: 'urlCriada', lead_update: 'urlAlterada', lead_source_update: 'urlOrigem' };
-/** Esperas entre tentativas (min). Passada a última, o webhook desliga: o destino está fora do ar. */
-const ESPERAS_MIN = [1, 2, 5];
+/** Lead de campanha: veio de anúncio, de formulário ou de link rastreável. Conversa sem origem não sai. */
+const ORIGENS_DE_CAMPANHA: OrigemLead[] = ['ctwa', 'formulario', 'link'];
+/** Esperas entre tentativas (min), as mesmas da captura da Kentro: passada a última, fica com erro e o admin reenvia. */
+const ESPERAS_MIN = [1, 5, 30, 120, 720];
 const POR_CICLO = 50;
 const TRAVA_MIN = 5;
 const TEMPO_LIMITE_MS = 10_000;
+
+type DadosDoCorpo = Pick<
+  Lead,
+  'id' | 'origem' | 'nome' | 'telefone' | 'email' | 'chatId' | 'recebidoEm' | 'campanhaIdMeta' | 'conjuntoIdMeta' | 'anuncioIdMeta' | 'formularioIdMeta' | 'ctwaClid' | 'utmSource' | 'utmMedium' | 'utmCampaign' | 'utmContent' | 'utmTerm' | 'gclid' | 'gbraid' | 'wbraid' | 'fbclid'
+> & { respostas: unknown };
+
+interface NomesDoLead {
+  campanha?: string | null;
+  conjunto?: string | null;
+  anuncio?: string | null;
+  formulario?: string | null;
+  link?: string | null;
+}
+
+const LEAD_DE_TESTE: DadosDoCorpo = {
+  id: 'teste',
+  origem: 'formulario',
+  nome: 'Lead de teste (Kentro Track)',
+  telefone: '5511999990000',
+  email: 'teste@exemplo.com.br',
+  chatId: null,
+  recebidoEm: new Date(0),
+  campanhaIdMeta: 'teste',
+  conjuntoIdMeta: 'teste',
+  anuncioIdMeta: 'teste',
+  formularioIdMeta: 'teste',
+  ctwaClid: null,
+  utmSource: null,
+  utmMedium: null,
+  utmCampaign: null,
+  utmContent: null,
+  utmTerm: null,
+  gclid: null,
+  gbraid: null,
+  wbraid: null,
+  fbclid: null,
+  respostas: [{ chave: 'city', pergunta: 'Cidade', resposta: 'São Paulo' }],
+};
+
+/** Plano, como o da captura da Kentro: cada campo vira uma variável capture_<campo> se o destino for uma captura. */
+function montarCorpo(evento: 'lead_campanha' | 'teste', l: DadosDoCorpo, nomes: NomesDoLead, fuso: string): Record<string, string> {
+  const respostas = (Array.isArray(l.respostas) ? l.respostas : []) as { chave?: string; pergunta: string; resposta: string }[];
+  const corpo: Record<string, string> = {
+    evento,
+    lead_id: l.id,
+    origem: l.origem,
+    nome: l.nome ?? '',
+    telefone: l.telefone ?? '',
+    email: l.email ?? '',
+    chat_id: l.chatId ?? '',
+    recebido_em: l.recebidoEm.toLocaleString('pt-BR', { timeZone: fuso, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+    recebido_em_iso: l.recebidoEm.toISOString(),
+    campanha: nomes.campanha ?? '',
+    campanha_id: l.campanhaIdMeta ?? '',
+    conjunto: nomes.conjunto ?? '',
+    conjunto_id: l.conjuntoIdMeta ?? '',
+    anuncio: nomes.anuncio ?? '',
+    anuncio_id: l.anuncioIdMeta ?? '',
+    formulario: nomes.formulario ?? '',
+    formulario_id: l.formularioIdMeta ?? '',
+    link: nomes.link ?? '',
+    ctwa_clid: l.ctwaClid ?? '',
+    utm_source: l.utmSource ?? '',
+    utm_medium: l.utmMedium ?? '',
+    utm_campaign: l.utmCampaign ?? '',
+    utm_content: l.utmContent ?? '',
+    utm_term: l.utmTerm ?? '',
+    gclid: l.gclid ?? '',
+    gbraid: l.gbraid ?? '',
+    wbraid: l.wbraid ?? '',
+    fbclid: l.fbclid ?? '',
+    respostas_texto: respostas.map((r) => `${r.pergunta}: ${r.resposta}`).join('\n'),
+  };
+  for (const r of respostas) {
+    const chave = chaveVariavel(r.chave ?? r.pergunta);
+    if (chave) corpo[`resposta_${chave}`] = r.resposta;
+  }
+  return corpo;
+}
 
 /** Endereços da própria rede: a API não pode ser usada para alcançar o que está atrás dela. */
 function ipInterno(ip: string): boolean {
@@ -69,38 +136,23 @@ export class WebhooksService {
     @Inject(FETCH) private readonly fetch: Fetch,
   ) {}
 
-  /** Quem recebe confere a assinatura com este segredo (derivado: não fica gravado). */
-  private segredo(id: string): string {
-    return assinar(this.config.chaveMestra, `webhook:${id}`);
-  }
-
-  private publico(w: WebhookSaida) {
-    return {
-      id: w.id,
-      nome: w.nome,
-      urlCriada: w.urlCriada,
-      urlAlterada: w.urlAlterada,
-      urlMensagem: w.urlMensagem,
-      urlOrigem: w.urlOrigem,
-      origens: w.origens,
-      ativo: w.ativo,
-      motivoDesativado: w.motivoDesativado,
-      segredo: this.segredo(w.id),
-    };
+  /** Quem recebe confere a assinatura com este segredo (derivado da conta: não fica gravado e não muda com o endereço). */
+  private segredo(contaId: string): string {
+    return assinar(this.config.chaveMestra, `webhook:${contaId}`);
   }
 
   async listar(contaId: string) {
-    const [webhooks, envios] = await Promise.all([
-      this.prisma.webhookSaida.findMany({ where: { contaId }, orderBy: { criadoEm: 'asc' } }),
-      this.prisma.envioWebhook.findMany({ where: { contaId }, orderBy: { id: 'desc' }, take: 30, include: { webhook: { select: { nome: true } } } }),
+    const [webhook, envios] = await Promise.all([
+      this.prisma.webhookSaida.findUnique({ where: { contaId } }),
+      this.prisma.envioWebhook.findMany({ where: { contaId }, orderBy: { id: 'desc' }, take: 20, include: { lead: { select: { nome: true, telefone: true } } } }),
     ]);
     return {
-      maximo: MAX_WEBHOOKS,
-      webhooks: webhooks.map((w) => this.publico(w)),
+      url: webhook?.url ?? null,
+      segredo: this.segredo(contaId),
       envios: envios.map((e) => ({
         id: String(e.id),
-        webhook: e.webhook.nome,
-        evento: e.evento,
+        nome: e.lead?.nome ?? null,
+        telefone: mascararTelefone(e.lead?.telefone),
         status: e.status,
         tentativas: e.tentativas,
         respostaStatus: e.respostaStatus,
@@ -111,127 +163,83 @@ export class WebhooksService {
     };
   }
 
-  private dados(d: DadosWebhook) {
-    const url = (v: string | null | undefined) => (v?.trim() ? validarUrl(v) : null);
-    const dados = {
-      nome: d.nome.trim().slice(0, 80),
-      urlCriada: url(d.urlCriada),
-      urlAlterada: url(d.urlAlterada),
-      urlMensagem: url(d.urlMensagem),
-      urlOrigem: url(d.urlOrigem),
-      origens: d.origens ?? [],
-    };
-    if (!dados.urlCriada && !dados.urlAlterada && !dados.urlMensagem && !dados.urlOrigem) throw new ErroApi(400, 'URL_OBRIGATORIA', 'Informe pelo menos uma URL.');
-    return dados;
+  /** Salva o endereço; vazio remove o webhook e a fila dele. */
+  async salvar(contaId: string, url: string | null | undefined) {
+    if (url?.trim()) {
+      const destino = validarUrl(url);
+      await this.prisma.webhookSaida.upsert({ where: { contaId }, create: { contaId, url: destino }, update: { url: destino } });
+    } else {
+      await this.prisma.webhookSaida.deleteMany({ where: { contaId } });
+    }
+    return this.listar(contaId);
   }
 
-  async criar(contaId: string, d: DadosWebhook) {
-    if ((await this.prisma.webhookSaida.count({ where: { contaId } })) >= MAX_WEBHOOKS) throw new ErroApi(400, 'WEBHOOKS_DEMAIS', `No máximo ${MAX_WEBHOOKS} webhooks por conta.`);
-    return this.publico(await this.prisma.webhookSaida.create({ data: { ...this.dados(d), contaId } }));
-  }
-
-  async atualizar(contaId: string, id: string, d: DadosWebhook) {
-    const r = await this.prisma.webhookSaida.updateMany({
-      where: { id, contaId },
-      // Ligar de novo limpa o motivo: quem ligou diz que o destino voltou.
-      data: { ...this.dados(d), ativo: d.ativo ?? true, motivoDesativado: null },
-    });
-    if (r.count === 0) throw new ErroApi(404, 'NAO_ENCONTRADO', 'Webhook não encontrado.');
-    return this.publico(await this.prisma.webhookSaida.findUniqueOrThrow({ where: { id } }));
-  }
-
-  async excluir(contaId: string, id: string) {
-    const r = await this.prisma.webhookSaida.deleteMany({ where: { id, contaId } });
-    if (r.count === 0) throw new ErroApi(404, 'NAO_ENCONTRADO', 'Webhook não encontrado.');
-    return { ok: true };
+  /** Lead de exemplo direto no endereço: confere o destino sem esperar um lead de verdade. */
+  async testar(contaId: string, url?: string) {
+    const conta = await this.prisma.conta.findUniqueOrThrow({ where: { id: contaId }, select: { fuso: true, webhook: { select: { url: true } } } });
+    const bruta = url?.trim() || conta.webhook?.url;
+    if (!bruta) throw new ErroApi(400, 'URL_OBRIGATORIA', 'Informe o endereço do webhook.');
+    const corpo = montarCorpo(
+      'teste',
+      { ...LEAD_DE_TESTE, recebidoEm: new Date() },
+      { campanha: 'Campanha de teste', conjunto: 'Conjunto de teste', anuncio: 'Anúncio de teste', formulario: 'Formulário de teste' },
+      conta.fuso,
+    );
+    const erro = await this.postar(contaId, validarUrl(bruta), corpo).then(
+      (status) => (status >= 200 && status < 300 ? null : `O destino respondeu ${status}.`),
+      (e) => this.motivo(e),
+    );
+    if (erro) throw new ErroApi(502, 'WEBHOOK_RECUSOU', erro);
+    return { ok: true, corpo };
   }
 
   async reenviar(contaId: string, id: bigint) {
     const r = await this.prisma.envioWebhook.updateMany({
-      where: { id, contaId, status: { in: ['erro', 'descartado'] } },
-      data: { status: 'pendente', tentativas: 0, proximaTentativaEm: new Date(), erro: null },
+      where: { id, contaId, status: 'erro' },
+      data: { status: 'pendente', tentativas: 0, proximaTentativaEm: new Date(), emEnvioAte: null, erro: null },
     });
     if (r.count === 0) throw new ErroApi(404, 'NAO_ENCONTRADO', 'Envio não encontrado ou já entregue.');
     return { ok: true };
   }
 
-  private async corpo(lead: Lead, evento: string) {
-    const nomeDe = async <T extends { nome: string }>(busca: Promise<T | null> | null) => (busca ? ((await busca)?.nome ?? null) : null);
-    const na = lead.contaAnuncioId;
-    const [etapaNome, campanha, conjunto, anuncio, link] = await Promise.all([
-      nomeDe(lead.etapaId ? this.prisma.etapaFunil.findUnique({ where: { id: lead.etapaId }, select: { nome: true } }) : null),
-      nomeDe(na && lead.campanhaIdMeta ? this.prisma.campanha.findUnique({ where: { contaAnuncioId_idMeta: { contaAnuncioId: na, idMeta: lead.campanhaIdMeta } }, select: { nome: true } }) : null),
-      nomeDe(na && lead.conjuntoIdMeta ? this.prisma.conjunto.findUnique({ where: { contaAnuncioId_idMeta: { contaAnuncioId: na, idMeta: lead.conjuntoIdMeta } }, select: { nome: true } }) : null),
-      nomeDe(na && lead.anuncioIdMeta ? this.prisma.anuncio.findUnique({ where: { contaAnuncioId_idMeta: { contaAnuncioId: na, idMeta: lead.anuncioIdMeta } }, select: { nome: true } }) : null),
-      nomeDe(lead.linkId ? this.prisma.linkRastreavel.findUnique({ where: { id: lead.linkId }, select: { nome: true } }) : null),
+  private async corpoDoLead(lead: Lead) {
+    const contaId = lead.contaId;
+    const [conta, campanha, conjunto, anuncio, formulario, link] = await Promise.all([
+      this.prisma.conta.findUniqueOrThrow({ where: { id: contaId }, select: { fuso: true } }),
+      lead.campanhaIdMeta ? this.prisma.campanha.findFirst({ where: { contaId, idMeta: lead.campanhaIdMeta }, select: { nome: true } }) : null,
+      lead.conjuntoIdMeta ? this.prisma.conjunto.findFirst({ where: { contaId, idMeta: lead.conjuntoIdMeta }, select: { nome: true } }) : null,
+      lead.anuncioIdMeta ? this.prisma.anuncio.findFirst({ where: { contaId, idMeta: lead.anuncioIdMeta }, select: { nome: true } }) : null,
+      lead.formularioIdMeta ? this.prisma.formularioMeta.findUnique({ where: { contaId_idMeta: { contaId, idMeta: lead.formularioIdMeta } }, select: { nome: true } }) : null,
+      lead.linkId ? this.prisma.linkRastreavel.findUnique({ where: { id: lead.linkId }, select: { nome: true } }) : null,
     ]);
-    return {
-      evento,
-      em: new Date().toISOString(),
-      contaId: lead.contaId,
-      lead: {
-        id: lead.id,
-        nome: lead.nome,
-        telefone: lead.telefone,
-        email: lead.email,
-        chatId: lead.chatId,
-        origem: lead.origem,
-        etapa: lead.etapa,
-        etapaId: lead.etapaId,
-        etapaNome,
-        valorVenda: lead.valorVenda == null ? null : Number(lead.valorVenda),
-        recebidoEm: lead.recebidoEm,
-        atendente: lead.atendenteNome,
-        anuncio: { campanhaId: lead.campanhaIdMeta, campanha, conjuntoId: lead.conjuntoIdMeta, conjunto, anuncioId: lead.anuncioIdMeta, anuncio, ctwaClid: lead.ctwaClid },
-        visita: {
-          link,
-          utmSource: lead.utmSource,
-          utmMedium: lead.utmMedium,
-          utmCampaign: lead.utmCampaign,
-          utmContent: lead.utmContent,
-          utmTerm: lead.utmTerm,
-          gclid: lead.gclid,
-          gbraid: lead.gbraid,
-          wbraid: lead.wbraid,
-          fbclid: lead.fbclid,
-        },
-      },
-    };
+    return montarCorpo(
+      'lead_campanha',
+      lead,
+      { campanha: campanha?.nome, conjunto: conjunto?.nome, anuncio: anuncio?.nome ?? lead.anuncioTitulo, formulario: formulario?.nome, link: link?.nome },
+      conta.fuso,
+    );
   }
 
-  private async doLead(lead: Lead) {
-    const webhooks = await this.prisma.webhookSaida.findMany({ where: { contaId: lead.contaId, ativo: true } });
-    return webhooks.filter((w) => w.origens.length === 0 || w.origens.includes(lead.origem));
+  /** Lead de campanha na fila. Cada lead sai uma vez: se a origem dele mudar depois, o índice único segura. */
+  async emitir(lead: Lead): Promise<void> {
+    if (!ORIGENS_DE_CAMPANHA.includes(lead.origem)) return;
+    const webhook = await this.prisma.webhookSaida.findUnique({ where: { contaId: lead.contaId }, select: { id: true } });
+    if (!webhook) return;
+    const payload = (await this.corpoDoLead(lead)) as Prisma.InputJsonValue;
+    await this.prisma.envioWebhook.createMany({ data: [{ contaId: lead.contaId, webhookId: webhook.id, leadId: lead.id, payload }], skipDuplicates: true });
   }
 
-  /** Põe o evento na fila de cada webhook que quer esta origem. */
-  async emitir(lead: Lead, evento: EventoWebhook): Promise<void> {
-    const webhooks = (await this.doLead(lead)).filter((w) => w[CAMPO_DA_URL[evento]]);
-    if (webhooks.length === 0) return;
-    const payload = (await this.corpo(lead, evento)) as unknown as Prisma.InputJsonValue;
-    await this.prisma.envioWebhook.createMany({
-      data: webhooks.map((w) => ({ contaId: lead.contaId, webhookId: w.id, leadId: lead.id, evento, url: w[CAMPO_DA_URL[evento]]!, payload })),
-    });
+  private motivo(e: unknown): string {
+    return e instanceof Error ? e.message.slice(0, 200) : 'Falha ao enviar.';
   }
 
-  /**
-   * Mensagem nova: sai na hora, uma tentativa só, e não entra na fila, porque a fila guardaria o
-   * texto. Quem precisa de garantia de entrega lê a conversa pela Kentro.
-   */
-  async entregarMensagem(lead: Lead, direcao: string, texto: string): Promise<void> {
-    const webhooks = (await this.doLead(lead)).filter((w) => w.urlMensagem);
-    if (webhooks.length === 0) return;
-    const corpo = { ...(await this.corpo(lead, 'message_create')), mensagem: { direcao, texto } };
-    await Promise.all(webhooks.map((w) => this.postar(w.id, w.urlMensagem!, corpo).catch(() => undefined)));
-  }
-
-  private async postar(webhookId: string, url: string, corpo: unknown): Promise<number> {
+  private async postar(contaId: string, url: string, corpo: unknown): Promise<number> {
     const { hostname } = new URL(url);
     // Olhado de novo na hora do envio: o nome pode ter passado a apontar para a rede interna.
     const enderecos = await lookup(hostname.replace(/^\[|\]$/g, ''), { all: true });
     if (enderecos.some((e) => ipInterno(e.address))) throw new Error('O endereço aponta para uma rede interna.');
     const texto = JSON.stringify(corpo);
-    const assinatura = createHmac('sha256', this.segredo(webhookId)).update(texto).digest('hex');
+    const assinatura = createHmac('sha256', this.segredo(contaId)).update(texto).digest('hex');
     const resposta = await this.fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'User-Agent': 'KentroTrack-Webhook', 'X-Kentro-Track-Assinatura': `sha256=${assinatura}` },
@@ -258,28 +266,25 @@ export class WebhooksService {
       )
       RETURNING id`;
     if (ids.length === 0) return 0;
-    const envios = await this.prisma.envioWebhook.findMany({ where: { id: { in: ids.map((i) => i.id) } }, orderBy: { id: 'asc' }, include: { webhook: true } });
-    for (const envio of envios) await this.enviar(envio, envio.webhook, agora);
+    const envios = await this.prisma.envioWebhook.findMany({ where: { id: { in: ids.map((i) => i.id) } }, orderBy: { id: 'asc' }, include: { webhook: { select: { url: true } } } });
+    for (const envio of envios) await this.enviar(envio, envio.webhook.url, agora);
     return envios.length;
   }
 
-  private async enviar(envio: EnvioWebhook, webhook: WebhookSaida, agora: Date): Promise<void> {
+  /** Vai para o endereço atual: quem corrige o endereço e reenvia não manda de novo para o errado. */
+  private async enviar(envio: EnvioWebhook, url: string, agora: Date): Promise<void> {
     const gravar = (dados: Prisma.EnvioWebhookUpdateInput) => this.prisma.envioWebhook.update({ where: { id: envio.id }, data: { emEnvioAte: null, ...dados } });
-    if (!webhook.ativo) {
-      await gravar({ status: 'descartado', erro: 'O webhook estava desligado.' });
-      return;
-    }
     let status: number | null = null;
     let erro: string;
     try {
-      status = await this.postar(webhook.id, envio.url, envio.payload);
+      status = await this.postar(envio.contaId, url, envio.payload);
       if (status >= 200 && status < 300) {
         await gravar({ status: 'enviado', respostaStatus: status, enviadoEm: agora, erro: null, tentativas: envio.tentativas + 1 });
         return;
       }
       erro = `O destino respondeu ${status}.`;
     } catch (e) {
-      erro = e instanceof Error ? e.message.slice(0, 200) : 'Falha ao enviar.';
+      erro = this.motivo(e);
     }
     const tentativas = envio.tentativas + 1;
     if (tentativas <= ESPERAS_MIN.length) {
@@ -287,7 +292,6 @@ export class WebhooksService {
       return;
     }
     await gravar({ tentativas, erro, respostaStatus: status, status: 'erro' });
-    await this.prisma.webhookSaida.update({ where: { id: webhook.id }, data: { ativo: false, motivoDesativado: `Desligado depois de ${tentativas} tentativas: ${erro}` } });
-    this.logger.warn(`Webhook ${webhook.id} desligado: ${erro}`);
+    this.logger.warn(`Envio ${envio.id} do webhook ${envio.webhookId} ficou com erro: ${erro}`);
   }
 }

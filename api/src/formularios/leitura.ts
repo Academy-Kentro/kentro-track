@@ -108,7 +108,7 @@ export interface PayloadKentro {
 }
 
 /** Chave de variável segura na automação: letras, números e "_". */
-const chaveVariavel = (chave: string) =>
+export const chaveVariavel = (chave: string) =>
   chave
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')

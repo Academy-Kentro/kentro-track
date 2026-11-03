@@ -17,7 +17,6 @@
     "db:local": "node api/scripts/db-local.mjs"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^1.4.0",
     "@nestjs/common": "^10.4.15",
     "@nestjs/core": "^10.4.15",
     "@nestjs/platform-express": "^10.4.15",

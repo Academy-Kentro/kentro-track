@@ -82,9 +82,43 @@ describe('aba Análises', () => {
     const { body } = await analises();
     expect(body.porDia).toHaveLength(7);
     const dia = (d: string) => body.porDia.find((x: { data: string }) => x.data === d);
-    expect(dia('2026-10-12')).toEqual({ data: '2026-10-12', entradas: 2, vendas: 0, receita: 0 });
-    expect(dia('2026-10-13')).toEqual({ data: '2026-10-13', entradas: 0, vendas: 2, receita: 4000 });
+    expect(dia('2026-10-12')).toEqual({ data: '2026-10-12', entradas: 2, origens: { ctwa: 2 }, vendas: 0, receita: 0 });
+    expect(dia('2026-10-13')).toEqual({ data: '2026-10-13', entradas: 0, origens: {}, vendas: 2, receita: 4000 });
     expect(dia('2026-10-14')).toMatchObject({ entradas: 0, vendas: 1, receita: 500 });
+  });
+
+  it('origem por dia: cada origem no dia em que o lead chegou', async () => {
+    const { body } = await analises();
+    const dia = (d: string) => body.porDia.find((x: { data: string }) => x.data === d);
+    expect(dia('2026-10-10')).toMatchObject({ entradas: 1, origens: { formulario: 1 } });
+    expect(dia('2026-10-11')).toMatchObject({ entradas: 2, origens: { ctwa: 1, organico: 1 } });
+  });
+
+  it('tempo de jornada: média das vendas do período, do primeiro contato até a venda', async () => {
+    const { body } = await analises();
+    // 22 h, 23 h e 13 dias (o lead 6 chegou antes do período, mas a venda foi nele).
+    expect(body.tempoJornada).toEqual({ vendas: 3, minutos: Math.round(((22 + 23 + 312) / 3) * 60) });
+    expect((await analises('de=2026-09-01&ate=2026-09-02')).body.tempoJornada).toEqual({ vendas: 0, minutos: null });
+  });
+
+  it('tempo de jornada: venda registrada antes do contato não deixa a média negativa', async () => {
+    await prisma.lead.create({ data: { contaId: r.contaId, chatId: '7', origem: 'ctwa', etapa: 'venda', valorVenda: 1, recebidoEm: new Date('2026-10-20T13:00:00Z'), vendaEm: new Date('2026-10-20T12:00:00Z') } });
+    expect((await analises('de=2026-10-20&ate=2026-10-20')).body.tempoJornada).toEqual({ vendas: 1, minutos: 0 });
+  });
+
+  it('funil: pela data do contato, quem chegou no período; pela data da venda, quem comprou nele', async () => {
+    const { body: { etapas } } = await comChave(request(app.getHttpServer()).get('/v1/etapas'), r.chaveAdmin);
+    const primeira = etapas.find((e: { tipo: string; noPainel: boolean }) => e.tipo === 'andamento' && e.noPainel);
+    const venda = etapas.find((e: { tipo: string }) => e.tipo === 'venda');
+    await prisma.lead.updateMany({ where: { contaId: r.contaId, chatId: { in: ['1', '2', '6'] } }, data: { etapasAlcancadas: [venda.id] } });
+    await prisma.lead.updateMany({ where: { contaId: r.contaId, chatId: '5' }, data: { etapasAlcancadas: [primeira.id] } });
+    const { body } = await analises();
+    const n = (lista: { id: string; leads: number }[], id: string) => lista.find((p) => p.id === id)!.leads;
+    expect(n(body.funil.contato, primeira.id)).toBe(3);
+    expect(n(body.funil.contato, venda.id)).toBe(2);
+    expect(n(body.funil.venda, primeira.id)).toBe(3);
+    expect(n(body.funil.venda, venda.id)).toBe(3);
+    expect(body.funil.contato.some((p: { tipo: string }) => p.tipo === 'perda')).toBe(false);
   });
 
   it('jornada (etapa atual) e motivos de descarte', async () => {

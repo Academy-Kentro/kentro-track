@@ -15,8 +15,6 @@ export interface ConfigApp {
   metaVersaoApi: string;
   /** Agenda de sincronização com o Meta rodando neste processo. SINCRONIZACAO=desligada para desligar. */
   sincronizacaoAutomatica: boolean;
-  /** Chave da API da Anthropic, usada pelo Inspetor de Vendas. null: o Inspetor fica indisponível. */
-  anthropicApiKey: string | null;
 }
 
 export interface ConfigMeta {
@@ -60,7 +58,6 @@ export function lerConfig(env: NodeJS.ProcessEnv): ConfigApp {
     meta: lerMeta(env),
     metaVersaoApi,
     sincronizacaoAutomatica: env.SINCRONIZACAO?.trim().toLowerCase() !== 'desligada',
-    anthropicApiKey: env.ANTHROPIC_API_KEY?.trim() || null,
   };
 }
 

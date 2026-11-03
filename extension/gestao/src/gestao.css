@@ -509,35 +509,31 @@ th[aria-sort] .kt-ordenar { color: var(--ext-color-primary); }
 .kt-passo-atual .kt-passo-n { background: var(--ext-color-primary); color: var(--ext-color-on-primary); }
 .kt-lote-tabela { max-height: 320px; overflow-y: auto; margin-bottom: 12px; }
 
-/* ── Conversa, frases gatilho e tempo de resposta ── */
-.kt-conversa { list-style: none; display: flex; flex-direction: column; gap: 6px; max-height: 420px; overflow-y: auto; margin: 10px 0 0; padding: 12px; border-radius: var(--kt-r-p); background: var(--kt-superficie-2); }
-.kt-mensagem { display: flex; flex-direction: column; gap: 2px; max-width: 75%; padding: 7px 10px; border-radius: var(--kt-r-p); background: var(--ext-color-bg); font-size: .92em; }
-.kt-mensagem-equipe { align-self: flex-end; background: var(--kt-suave); }
-.kt-mensagem-cliente { align-self: flex-start; }
-.kt-mensagem-aviso { align-self: center; background: transparent; color: var(--ext-color-text-muted); font-size: .84em; }
-.kt-mensagem-texto { white-space: pre-wrap; overflow-wrap: anywhere; }
-.kt-mensagem-hora { font-size: .78em; align-self: flex-end; }
+/* ── Frases gatilho e tempo de resposta ── */
 .kt-etapa-frases { display: flex; flex-wrap: wrap; gap: 0 16px; margin: 10px 0 0 36px; }
 .kt-etapa-frases .kt-campo { flex: 1 1 280px; margin-bottom: 6px; }
-.kt-tempo-resposta strong.kt-tempo-valor { display: block; font-size: 1.7em; line-height: 1.2; margin: 8px 0 4px; }
+.kt-tempo-resposta strong.kt-tempo-valor, .kt-tempo-jornada strong.kt-tempo-valor { display: block; font-size: 1.7em; line-height: 1.2; margin: 8px 0 4px; }
 @media (max-width: 640px) { .kt-etapa-frases { margin-left: 0; } }
 
-/* ── Links, Inspetor e webhooks ── */
+/* ── Links e primeiros passos ── */
 .kt-link-chaves { margin: 0 0 14px; }
 .kt-linha-apagada { opacity: .6; }
-.kt-sugestoes, .kt-webhooks, .kt-passos-iniciais { list-style: none; margin: 0; padding: 0; }
-.kt-sugestao { padding: 12px 0; border-bottom: 1px solid var(--kt-linha); }
-.kt-sugestao:last-child { border-bottom: 0; }
-.kt-sugestao-topo { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-bottom: 8px; }
-.kt-evidencia { margin: 0 0 10px; padding: 8px 12px; border-left: 3px solid var(--kt-suave-2); background: var(--kt-superficie); border-radius: 0 var(--kt-r-p) var(--kt-r-p) 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.kt-sugestao-valor { width: 120px; font: inherit; font-size: .9em; padding: 6px 10px; border: 1px solid var(--kt-linha-forte); border-radius: var(--kt-r-p); background: var(--ext-color-bg); color: var(--ext-color-text); }
-.kt-inspetor-uso { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-bottom: 12px; }
-.kt-inspetor-uso .kt-taxa-trilho { flex: 1 1 160px; }
-.kt-inspetor-ligar { margin-bottom: 10px; }
-.kt-inspetor-ligar p { margin: 6px 0 0; }
-.kt-formulario-webhook { margin-bottom: 14px; padding: 14px; border-radius: var(--kt-r-p); background: var(--kt-superficie); }
-.kt-webhooks li { padding: 10px 0; border-bottom: 1px solid var(--kt-linha); }
-.kt-webhook-topo { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
-.kt-webhook-topo .kt-linha-acoes { margin-left: auto; }
+.kt-passos-iniciais { list-style: none; margin: 0; padding: 0; }
 .kt-passos-iniciais li { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
 .kt-passo-feito { color: var(--ext-color-text-muted); text-decoration: line-through; }
+
+/* ── Origem por dia e funil por data ── */
+/* Paleta categórica conferida com o validador (daltonismo e fundo claro e escuro). A cor marca a série; texto fica nas cores de texto. */
+.kt-grafico-largo { grid-column: 1 / -1; }
+.kt-serie-1 { --kt-serie: #2a78d6; }
+.kt-serie-2 { --kt-serie: #d95926; }
+.kt-serie-3 { --kt-serie: #1baf7a; }
+.kt-serie-neutra { --kt-serie: color-mix(in srgb, var(--ext-color-text) 24%, var(--ext-color-bg)); }
+.kt-pedaco { fill: var(--kt-serie); transition: opacity .1s; }
+.kt-empilhada-ativa .kt-pedaco { opacity: .75; }
+.kt-amostra { display: inline-block; flex: none; width: 10px; height: 10px; border-radius: 2px; background: var(--kt-serie); }
+.kt-legenda { list-style: none; display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0 0 10px; padding: 0; font-size: .85em; color: var(--ext-color-text-muted); }
+.kt-legenda li { display: inline-flex; align-items: center; gap: 6px; }
+.kt-legenda strong { color: var(--ext-color-text); font-weight: 600; }
+.kt-dica .kt-dica-serie { display: flex; align-items: center; gap: 6px; }
+.kt-tempo-jornada p { margin: 0; }

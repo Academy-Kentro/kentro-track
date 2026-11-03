@@ -10,11 +10,10 @@ import { Criativos } from './criativos';
 import { BarraFiltros, consulta, Filtro, intervalo, PRESETS, useDados } from './filtro';
 import { DadosEquipe, Equipe, Leads } from './leads';
 import { consultaLeads, DadosLeads, FILTRO_LEADS_PADRAO, FiltroLeads, VisaoLeads } from './leads-comum';
-import { Inspetor } from './inspetor';
 import { Links } from './links';
 import { PassosIniciais } from './passos-iniciais';
 import { CHAVES_PENDENTES, PrimeiroUso } from './primeiro-uso';
-import type { Campanhas as DadosCampanhas, Conta, Criativos as DadosCriativos, Filtros, VisaoGeral as DadosVisao } from './tipos';
+import type { AlcanceCampanhas, Campanhas as DadosCampanhas, Conta, Criativos as DadosCriativos, Filtros, VisaoGeral as DadosVisao } from './tipos';
 import { VisaoGeral } from './visao-geral';
 
 type Estado = { tipo: 'carregando' } | { tipo: 'sem_chave' } | { tipo: 'erro'; mensagem: string; chaveInvalida: boolean } | { tipo: 'ok'; conta: Conta };
@@ -25,13 +24,12 @@ const ABAS: readonly { id: string; titulo: string; icone: NomeIcone; soAdmin?: t
   { id: 'campanhas', titulo: 'Campanhas', icone: 'megafone' },
   { id: 'criativos', titulo: 'Criativos', icone: 'imagem' },
   { id: 'leads', titulo: 'Leads', icone: 'lista' },
-  { id: 'inspetor', titulo: 'Inspetor', icone: 'estrela' },
   { id: 'links', titulo: 'Links', icone: 'link' },
   { id: 'equipe', titulo: 'Equipe', icone: 'usuarios' },
   { id: 'config', titulo: 'Configurações', icone: 'ajustes', soAdmin: true },
 ] as const;
 
-type IdAba = 'visao' | 'analises' | 'campanhas' | 'criativos' | 'leads' | 'inspetor' | 'links' | 'equipe' | 'config';
+type IdAba = 'visao' | 'analises' | 'campanhas' | 'criativos' | 'leads' | 'links' | 'equipe' | 'config';
 
 const PAPEL: Record<Conta['papel'], string> = { admin: 'Administrador', gestor: 'Gestor', atendimento: 'Atendimento', api: 'Integração' };
 const FILTRO_SALVO = 'filtro';
@@ -72,6 +70,8 @@ function Paineis({ omni, api, conta, aba, irPara }: { omni: Omni; api: Api; cont
   const visao = useDados<DadosVisao>(api, pronto && aba === 'visao' ? `/v1/painel/visao-geral?${q}` : null, aCada);
   const analises = useDados<DadosAnalises>(api, pronto && aba === 'analises' ? `/v1/painel/analises?${q}` : null, aCada);
   const campanhas = useDados<DadosCampanhas>(api, pronto && aba === 'campanhas' ? `/v1/painel/campanhas?${q}` : null, aCada);
+  // À parte e sem recarregar sozinho: vem do Meta na hora e não pode atrasar a tabela.
+  const alcance = useDados<AlcanceCampanhas>(api, pronto && aba === 'campanhas' ? `/v1/painel/campanhas/alcance?${q}` : null);
   const criativos = useDados<DadosCriativos>(api, pronto && aba === 'criativos' ? `/v1/painel/criativos?${q}` : null, aCada);
   // As colunas buscam a própria rota; a troca em lote usa daqui só a lista de etapas.
   const leads = useDados<DadosLeads>(api, pronto && aba === 'leads' && visaoLeads !== 'colunas' ? `/v1/painel/leads?${consultaLeads(q, filtroLeads)}` : null);
@@ -104,10 +104,9 @@ function Paineis({ omni, api, conta, aba, irPara }: { omni: Omni; api: Api; cont
       {aba === 'visao' && <PassosIniciais omni={omni} api={api} />}
       {aba === 'visao' && <VisaoGeral carga={visao} />}
       {aba === 'analises' && <Analises carga={analises} />}
-      {aba === 'campanhas' && <Campanhas carga={campanhas} />}
+      {aba === 'campanhas' && <Campanhas carga={campanhas} alcance={alcance.dados} />}
       {aba === 'criativos' && <Criativos carga={criativos} />}
       {aba === 'leads' && <Leads omni={omni} api={api} q={q} carga={leads} filtro={filtroLeads} mudar={setFiltroLeads} visao={visaoLeads} mudarVisao={setVisaoLeads} />}
-      {aba === 'inspetor' && <Inspetor omni={omni} api={api} q={q} admin={conta.papel === 'admin'} />}
       {aba === 'equipe' && <Equipe omni={omni} api={api} carga={equipe} />}
     </>
   );

@@ -2,6 +2,7 @@ import { Body, Controller, Get, HttpCode, Post, Query, Req, UseGuards } from '@n
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, IsArray, IsIn, IsInt, IsOptional, IsString, IsUUID, Length, Matches, Max, Min, ValidateNested } from 'class-validator';
 import { ChaveContaGuard, Papeis, RequisicaoDaConta } from '../contas/chave-conta.guard';
+import { AlcanceService } from './alcance.service';
 import { AnalisesService } from './analises.service';
 import { MAX_ATENDENTES_POR_VEZ, PainelService, TipoExportacao } from './painel.service';
 
@@ -129,6 +130,7 @@ export class PainelController {
   constructor(
     private readonly painel: PainelService,
     private readonly analisesService: AnalisesService,
+    private readonly alcanceService: AlcanceService,
   ) {}
 
   @Get('filtros')
@@ -144,6 +146,11 @@ export class PainelController {
   @Get('campanhas')
   campanhas(@Req() req: RequisicaoDaConta, @Query() filtro: FiltroDto) {
     return this.painel.campanhas(req.conta.id, filtro);
+  }
+
+  @Get('campanhas/alcance')
+  alcance(@Req() req: RequisicaoDaConta, @Query() filtro: FiltroDto) {
+    return this.alcanceService.alcance(req.conta.id, filtro);
   }
 
   @Get('criativos')

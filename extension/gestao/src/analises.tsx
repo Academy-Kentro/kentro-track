@@ -4,9 +4,10 @@ import { Aviso, Carregando, Interruptor } from '../../comum/componentes';
 import { compacto, dinheiro, dinheiroCompacto, inteiro, percentual, vezes } from '../../comum/formato';
 import { Icone, NomeIcone } from '../../comum/icones';
 import type { Carga } from './filtro';
-import { BarrasHorizontais, GraficoColunas, LeadsDdd, LeadsUf, MapaBrasil, MapaCalor } from './graficos';
+import { BarrasHorizontais, GraficoColunas, GraficoEmpilhado, LeadsDdd, LeadsUf, MapaBrasil, MapaCalor } from './graficos';
 
 type Etapa = 'novo' | 'em_atendimento' | 'qualificado' | 'venda' | 'descartado';
+type BaseFunil = 'contato' | 'venda';
 
 interface ItemRanking {
   idMeta: string;
@@ -23,7 +24,7 @@ export interface DadosAnalises {
   moeda: string;
   periodo: { de: string; ate: string };
   origens: { total: number; percentualRastreado: number | null; itens: { origem: string; leads: number; vendas: number; receita: number }[] };
-  porDia: { data: string; entradas: number; vendas: number; receita: number }[];
+  porDia: { data: string; entradas: number; vendas: number; receita: number; origens?: Record<string, number> }[];
   etapas: Partial<Record<Etapa, number>>;
   motivosDescarte: { motivo: string; leads: number }[];
   estados: { itens: LeadsUf[]; ddds: LeadsDdd[]; semEstado: number };
@@ -31,6 +32,9 @@ export interface DadosAnalises {
   tempoAtendimento: { faixas: { id: string; rotulo: string; leads: number }[]; naoAtendidos: number };
   /** Só existe com as mensagens ligadas (Configurações › Integração); API anterior não manda. */
   tempoResposta?: { respondidos: number; aguardando: number; minutosPrimeira: number | null; minutosSegunda: number | null };
+  /** API anterior não manda os dois abaixo. */
+  tempoJornada?: { vendas: number; minutos: number | null };
+  funil?: Record<BaseFunil, { id: string; nome: string; leads: number }[]>;
   ranking: { campanhas: ItemRanking[]; conjuntos: ItemRanking[]; anuncios: ItemRanking[] };
 }
 
@@ -40,6 +44,14 @@ const ORIGEM: Record<string, string> = {
   link: 'Link rastreável',
   organico: 'Sem anúncio (orgânico)',
 };
+
+/** Rastreadas na base, onde dá para comparar os dias; o que veio sem anúncio fica neutro, em cima. */
+const SERIES_ORIGEM = [
+  { id: 'ctwa', rotulo: ORIGEM.ctwa, classe: 'kt-serie-1' },
+  { id: 'formulario', rotulo: ORIGEM.formulario, classe: 'kt-serie-2' },
+  { id: 'link', rotulo: ORIGEM.link, classe: 'kt-serie-3' },
+  { id: 'organico', rotulo: ORIGEM.organico, classe: 'kt-serie-neutra' },
+];
 
 const ETAPAS: { id: Etapa; rotulo: string }[] = [
   { id: 'novo', rotulo: 'Novo (ainda sem atendente)' },
@@ -68,7 +80,11 @@ function Bloco({ icone, titulo, descricao, colunas = 3, children }: { icone: Nom
 
 const plural = (n: number, um: string, varios: string) => `${inteiro(n)} ${n === 1 ? um : varios}`;
 
-const duracao = (min: number) => (min < 60 ? `${inteiro(min)} min` : `${(min / 60).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} h`);
+const duracao = (min: number) => {
+  if (min < 60) return `${inteiro(min)} min`;
+  if (min < 48 * 60) return `${(min / 60).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} h`;
+  return `${(min / 1440).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} dias`;
+};
 
 /** Do lead chegar à resposta do atendente. A saudação manual de cada atendente distorce: daí a opção da 2ª mensagem. */
 function TempoResposta({ dados }: { dados: DadosAnalises['tempoResposta'] }) {
@@ -96,6 +112,60 @@ function TempoResposta({ dados }: { dados: DadosAnalises['tempoResposta'] }) {
         </>
       )}
     </figure>
+  );
+}
+
+/** Do primeiro contato até a venda, nas vendas registradas no período. */
+function TempoJornada({ dados }: { dados: NonNullable<DadosAnalises['tempoJornada']> }) {
+  return (
+    <figure class="kt-grafico kt-tempo-jornada">
+      <figcaption class="kt-grafico-topo">
+        <div>
+          <h3>Tempo médio de jornada</h3>
+          <p class="kt-muted">Do primeiro contato até a venda</p>
+        </div>
+      </figcaption>
+      {dados.minutos == null ? (
+        <p class="kt-muted">Nenhuma venda no período.</p>
+      ) : (
+        <>
+          <strong class="kt-tempo-valor">{duracao(dados.minutos)}</strong>
+          <p class="kt-muted">{plural(dados.vendas, 'venda do período', 'vendas do período')}</p>
+        </>
+      )}
+    </figure>
+  );
+}
+
+const BASES_FUNIL: { id: BaseFunil; rotulo: string }[] = [
+  { id: 'contato', rotulo: 'Data do contato' },
+  { id: 'venda', rotulo: 'Data da venda' },
+];
+
+/** Os mesmos passos por duas perguntas: o que aconteceu com quem chegou no período, e de onde vieram as vendas dele. */
+function FunilJornada({ funil }: { funil: NonNullable<DadosAnalises['funil']> }) {
+  const [base, setBase] = useState<BaseFunil>('contato');
+  const passos = funil[base];
+  return (
+    <BarrasHorizontais
+      titulo="Funil da jornada"
+      subtitulo={base === 'contato' ? 'Leads que chegaram no período e até onde foram' : 'Leads que compraram no período e por onde passaram'}
+      barras={passos.map((p, i) => {
+        const anterior = passos[i - 1]?.leads;
+        return { rotulo: p.nome, valor: p.leads, detalhe: anterior ? `${percentual((p.leads / anterior) * 100, 1)} da etapa anterior` : undefined };
+      })}
+      formatar={inteiro}
+      vazio={base === 'contato' ? 'Nenhum lead no período.' : 'Nenhuma venda no período.'}
+      acoes={
+        <div class="kt-chips" role="group" aria-label="Contar pela">
+          {BASES_FUNIL.map((b) => (
+            <button key={b.id} type="button" class="kt-chip" aria-pressed={base === b.id} onClick={() => setBase(b.id)}>
+              {b.rotulo}
+            </button>
+          ))}
+        </div>
+      }
+    />
   );
 }
 
@@ -135,6 +205,16 @@ export function Analises({ carga }: { carga: Carga<DadosAnalises> }) {
           }))}
           formatar={inteiro}
         />
+        {dados.porDia.some((d) => d.origens) && (
+          <GraficoEmpilhado
+            titulo="Origem dos leads por dia"
+            resumo={plural(dados.porDia.reduce((a, d) => a + d.entradas, 0), 'lead', 'leads')}
+            series={SERIES_ORIGEM}
+            pontos={dados.porDia.map((d) => ({ dia: d.data, valores: d.origens ?? {} }))}
+            formatar={inteiro}
+            formatarEixo={compacto}
+          />
+        )}
       </Bloco>
 
       <Bloco icone="calendario" titulo="Dia a dia do atendimento" descricao="Leads pelo dia em que chegaram; vendas e faturamento pelo dia em que a venda foi registrada">
@@ -190,7 +270,8 @@ export function Analises({ carga }: { carga: Carga<DadosAnalises> }) {
         />
       </Bloco>
 
-      <Bloco icone="alvo" titulo="Jornada e gargalos" descricao="Em que etapa estão os leads do período, por que os perdidos foram perdidos e quanto demoram a ser atendidos">
+      <Bloco icone="alvo" titulo="Jornada e gargalos" descricao="Até onde os leads foram, em que etapa estão, por que os perdidos foram perdidos e quanto demoram a ser atendidos e a comprar">
+        {dados.funil && <FunilJornada funil={dados.funil} />}
         <BarrasHorizontais
           titulo="Etapa atual dos leads"
           barras={ETAPAS.map((e) => ({ rotulo: e.rotulo, valor: dados.etapas[e.id] ?? 0 }))}
@@ -212,6 +293,7 @@ export function Analises({ carga }: { carga: Carga<DadosAnalises> }) {
           formatar={inteiro}
         />
         <TempoResposta dados={dados.tempoResposta} />
+        {dados.tempoJornada && <TempoJornada dados={dados.tempoJornada} />}
       </Bloco>
 
       <Bloco icone="relogio" titulo="Quando e onde" descricao="Horário de chegada (no fuso da conta) e de onde vêm os leads, pelo DDD do telefone" colunas={2}>

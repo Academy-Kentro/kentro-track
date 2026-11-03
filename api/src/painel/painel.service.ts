@@ -132,7 +132,7 @@ export class PainelService {
    * Quantos leads (do filtro) cada etapa visível tem. Andamento e venda: chegaram até ela ou além (o
    * lead marcado direto como venda conta nas anteriores). Perda: estão nela agora.
    */
-  private async contarPorEtapa(contaId: string, ondeLeads: Prisma.Sql, porAtendente: boolean) {
+  async contarPorEtapa(contaId: string, ondeLeads: Prisma.Sql, porAtendente: boolean) {
     const linhas = await this.prisma.$queryRaw<{ atendente_id: string; etapa_id: string; n: bigint }[]>`
       SELECT ${porAtendente ? Prisma.sql`COALESCE(l.atendente_id, '')` : Prisma.sql`''`} AS atendente_id, e.id::text AS etapa_id, COUNT(*) AS n
       FROM leads l JOIN etapas_funil e ON e.conta_id = l.conta_id
@@ -146,7 +146,7 @@ export class PainelService {
   }
 
   /** As etapas que entram nos painéis (ativas e marcadas para aparecer), na ordem do funil. */
-  private async etapasDoPainel(contaId: string) {
+  async etapasDoPainel(contaId: string) {
     return (await this.etapas.listar(contaId)).filter((e) => e.ativa && e.noPainel).map(etapaPublica);
   }
 

@@ -34,18 +34,12 @@ model Conta {
   capturaKentroUrl     String?     @map("captura_kentro_url")
   /// Chave da API aberta: só existe depois que o admin gera a primeira.
   chaveApiHash         String?     @unique @map("chave_api_hash")
-  /// O admin precisa ligar: as conversas vão para a IA (Anthropic) para serem analisadas.
-  inspetorAtivo        Boolean     @default(false) @map("inspetor_ativo")
-  /// AAAA-MM a que inspetorUsadas se refere.
-  inspetorMes          String?     @map("inspetor_mes")
-  inspetorUsadas       Int         @default(0) @map("inspetor_usadas")
   criadoEm             DateTime    @default(now()) @map("criado_em")
   atualizadoEm         DateTime    @updatedAt @map("atualizado_em")
 
   links         LinkRastreavel[]
   visitas       VisitaLink[]
-  sugestoes     ConversaoSugerida[]
-  webhooks      WebhookSaida[]
+  webhook       WebhookSaida?
   enviosWebhook EnvioWebhook[]
   conexaoMeta   ConexaoMeta?
   leads         Lead[]
@@ -394,8 +388,6 @@ model Lead {
   segundaRespostaEm    DateTime? @map("segunda_resposta_em")
   ultimaMensagemEm     DateTime? @map("ultima_mensagem_em")
   ultimaMensagemLeadEm DateTime? @map("ultima_mensagem_lead_em")
-  /// Última vez que o Inspetor leu a conversa: só lê de novo se chegou mensagem depois.
-  inspecionadoEm       DateTime? @map("inspecionado_em")
 
   // Link rastreável: copiado da visita que abriu a conversa.
   linkId      String? @map("link_id") @db.Uuid
@@ -414,7 +406,6 @@ model Lead {
   link          LinkRastreavel?     @relation(fields: [linkId], references: [id], onDelete: SetNull)
   eventos       EventoLead[]
   envios        EnvioCapi[]
-  sugestoes     ConversaoSugerida[]
   enviosWebhook EnvioWebhook[]
 
   @@index([contaId, linkId])
@@ -561,63 +552,26 @@ model VisitaLink {
   @@map("visitas_link")
 }
 
-/// Venda que o Inspetor achou na conversa e espera a decisão de uma pessoa.
-model ConversaoSugerida {
-  id            String    @id @default(uuid()) @db.Uuid
-  contaId       String    @map("conta_id") @db.Uuid
-  leadId        String    @map("lead_id") @db.Uuid
-  /// "alta", "media" ou "baixa".
-  confianca     String
-  /// O trecho da conversa que a IA usou: é o único texto de mensagem que o Kentro Track guarda.
-  evidencia     String
-  evidenciaEm   DateTime? @map("evidencia_em")
-  valorSugerido Decimal?  @map("valor_sugerido") @db.Decimal(14, 2)
-  /// "pendente", "aprovada" ou "recusada".
-  status        String    @default("pendente")
-  decididoEm    DateTime? @map("decidido_em")
-  decididoPor   String?   @map("decidido_por")
-  criadoEm      DateTime  @default(now()) @map("criado_em")
-
-  conta Conta @relation(fields: [contaId], references: [id], onDelete: Cascade)
-  lead  Lead  @relation(fields: [leadId], references: [id], onDelete: Cascade)
-
-  @@index([contaId, status, criadoEm])
-  @@index([leadId])
-  @@map("conversoes_sugeridas")
-}
-
-/// Para onde a conta quer que os eventos dos leads sejam enviados (uma URL por evento).
+/// Para onde a conta quer que os leads de campanha sejam enviados.
 model WebhookSaida {
-  id               String   @id @default(uuid()) @db.Uuid
-  contaId          String   @map("conta_id") @db.Uuid
-  nome             String
-  urlCriada        String?  @map("url_criada")
-  urlAlterada      String?  @map("url_alterada")
-  urlMensagem      String?  @map("url_mensagem")
-  urlOrigem        String?  @map("url_origem")
-  /// Origens de lead que disparam. Vazio: todas.
-  origens          String[] @default([])
-  ativo            Boolean  @default(true)
-  /// Desligado sozinho depois de esgotar as tentativas: o motivo aparece para o admin.
-  motivoDesativado String?  @map("motivo_desativado")
-  criadoEm         DateTime @default(now()) @map("criado_em")
-  atualizadoEm     DateTime @updatedAt @map("atualizado_em")
+  id           String   @id @default(uuid()) @db.Uuid
+  contaId      String   @unique @map("conta_id") @db.Uuid
+  url          String
+  criadoEm     DateTime @default(now()) @map("criado_em")
+  atualizadoEm DateTime @updatedAt @map("atualizado_em")
 
   conta  Conta          @relation(fields: [contaId], references: [id], onDelete: Cascade)
   envios EnvioWebhook[]
 
-  @@index([contaId])
   @@map("webhooks_saida")
 }
 
-/// Fila de envios dos webhooks. A mensagem não passa por aqui: o texto não é gravado.
+/// Fila de envios do webhook: cada lead sai uma vez, para o endereço atual da conta.
 model EnvioWebhook {
   id                 BigInt      @id @default(autoincrement())
   contaId            String      @map("conta_id") @db.Uuid
   webhookId          String      @map("webhook_id") @db.Uuid
   leadId             String?     @map("lead_id") @db.Uuid
-  evento             String
-  url                String
   payload            Json
   status             StatusEnvio @default(pendente)
   tentativas         Int         @default(0)
@@ -632,6 +586,7 @@ model EnvioWebhook {
   webhook WebhookSaida @relation(fields: [webhookId], references: [id], onDelete: Cascade)
   lead    Lead?        @relation(fields: [leadId], references: [id], onDelete: SetNull)
 
+  @@unique([webhookId, leadId])
   @@index([status, proximaTentativaEm])
   @@index([contaId, criadoEm])
   @@map("envios_webhook")

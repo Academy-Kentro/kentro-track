@@ -1,3 +1,4 @@
+import type { ComponentChildren } from 'preact';
 import { MapChart } from 'echarts/charts';
 import { TooltipComponent, VisualMapComponent, AriaComponent } from 'echarts/components';
 import { init, registerMap, use, type EChartsType } from 'echarts/core';
@@ -45,21 +46,25 @@ function caminhoColuna(x: number, y: number, largura: number, altura: number): s
   return `M${x},${y + altura}V${y + r}Q${x},${y} ${x + r},${y}H${x + largura - r}Q${x + largura},${y} ${x + largura},${y + r}V${y + altura}Z`;
 }
 
-/** Gráfico de colunas diário de uma série. Uma série só: o título diz o que é, sem legenda. */
-export function GraficoColunas({ titulo, resumo, pontos, formatar, formatarEixo }: Props) {
+/** Largura da área do gráfico. A área é recriada ao voltar da tabela: observa de novo. */
+function useLargura(tabela: boolean) {
   const caixa = useRef<HTMLDivElement>(null);
   const [largura, setLargura] = useState(600);
-  const [ativo, setAtivo] = useState<number | null>(null);
-  const [tabela, setTabela] = useState(false);
-
   useEffect(() => {
     const el = caixa.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
     const obs = new ResizeObserver(([e]) => setLargura(Math.max(240, Math.floor(e.contentRect.width))));
     obs.observe(el);
     return () => obs.disconnect();
-    // A área é recriada ao voltar da tabela: observa de novo.
   }, [tabela]);
+  return { caixa, largura };
+}
+
+/** Gráfico de colunas diário de uma série. Uma série só: o título diz o que é, sem legenda. */
+export function GraficoColunas({ titulo, resumo, pontos, formatar, formatarEixo }: Props) {
+  const [ativo, setAtivo] = useState<number | null>(null);
+  const [tabela, setTabela] = useState(false);
+  const { caixa, largura } = useLargura(tabela);
 
   const teto = tetoRedondo(Math.max(0, ...pontos.map((p) => p.valor)));
   const areaL = largura - MARGEM.esquerda - MARGEM.direita;
@@ -166,6 +171,171 @@ export function GraficoColunas({ titulo, resumo, pontos, formatar, formatarEixo 
   );
 }
 
+export interface SerieEmpilhada {
+  id: string;
+  rotulo: string;
+  /** A cor segue a série, nunca a posição: a mesma origem tem a mesma cor em qualquer período. */
+  classe: string;
+}
+
+/**
+ * Colunas diárias empilhadas: o total do dia e de que ele é feito. A primeira série fica na base, onde
+ * dá para comparar um dia com o outro. A cor nunca fica sozinha: há legenda com o total, dica e tabela.
+ */
+export function GraficoEmpilhado({
+  titulo,
+  resumo,
+  series,
+  pontos,
+  formatar,
+  formatarEixo,
+}: {
+  titulo: string;
+  resumo?: string;
+  series: SerieEmpilhada[];
+  pontos: { dia: string; valores: Record<string, number> }[];
+  formatar: (v: number) => string;
+  formatarEixo: (v: number) => string;
+}) {
+  const [ativo, setAtivo] = useState<number | null>(null);
+  const [tabela, setTabela] = useState(false);
+  const { caixa, largura } = useLargura(tabela);
+
+  const valor = (i: number, serie: string) => pontos[i]?.valores[serie] ?? 0;
+  const totalDoDia = (i: number) => series.reduce((a, s) => a + valor(i, s.id), 0);
+  const teto = tetoRedondo(Math.max(0, ...pontos.map((_, i) => totalDoDia(i))));
+  const areaL = largura - MARGEM.esquerda - MARGEM.direita;
+  const areaA = ALTURA - MARGEM.topo - MARGEM.base;
+  const faixa = pontos.length ? areaL / pontos.length : areaL;
+  const barra = Math.max(1, Math.min(LARGURA_MAX_BARRA, faixa - ESPACO));
+  const y = (v: number) => MARGEM.topo + areaA - (v / teto) * areaA;
+  const rotulosX = pontos.length <= 1 ? [0] : [0, Math.floor((pontos.length - 1) / 2), pontos.length - 1];
+  const descrever = (i: number) =>
+    series
+      .filter((s) => valor(i, s.id) > 0)
+      .map((s) => `${s.rotulo}: ${formatar(valor(i, s.id))}`)
+      .join(', ');
+
+  return (
+    <figure class="kt-grafico kt-grafico-largo">
+      <figcaption class="kt-grafico-topo">
+        <div>
+          <h3>{titulo}</h3>
+          {resumo && <p class="kt-grafico-resumo">{resumo}</p>}
+        </div>
+        <button type="button" class="kt-botao kt-botao-fantasma kt-botao-pequeno" onClick={() => setTabela(!tabela)}>
+          <Icone nome={tabela ? 'grafico' : 'lista'} tamanho={14} />
+          {tabela ? 'Ver gráfico' : 'Ver tabela'}
+        </button>
+      </figcaption>
+      <ul class="kt-legenda">
+        {series.map((s) => (
+          <li key={s.id}>
+            <span class={`kt-amostra ${s.classe}`} aria-hidden="true" />
+            {s.rotulo}
+            <strong>{formatar(pontos.reduce((a, _, i) => a + valor(i, s.id), 0))}</strong>
+          </li>
+        ))}
+      </ul>
+      {tabela ? (
+        <div class="kt-tabela-rolagem">
+          <table class="kt-tabela">
+            <thead>
+              <tr>
+                <th>Dia</th>
+                {series.map((s) => (
+                  <th key={s.id} class="kt-num">
+                    {s.rotulo}
+                  </th>
+                ))}
+                <th class="kt-num">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pontos.map((pt, i) => (
+                <tr key={pt.dia}>
+                  <td>{diaLongo(pt.dia)}</td>
+                  {series.map((s) => (
+                    <td key={s.id} class="kt-num">
+                      {formatar(valor(i, s.id))}
+                    </td>
+                  ))}
+                  <td class="kt-num">{formatar(totalDoDia(i))}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div class="kt-grafico-area" ref={caixa} onPointerLeave={() => setAtivo(null)}>
+          <svg width={largura} height={ALTURA} role="img" aria-label={titulo}>
+            {[0, teto / 2, teto].map((m) => (
+              <g key={m}>
+                <line class="kt-grade" x1={MARGEM.esquerda} x2={largura - MARGEM.direita} y1={y(m)} y2={y(m)} />
+                <text class="kt-eixo" x={MARGEM.esquerda - 6} y={y(m) + 4} text-anchor="end">
+                  {formatarEixo(m)}
+                </text>
+              </g>
+            ))}
+            {pontos.map((pt, i) => {
+              const x = MARGEM.esquerda + i * faixa + (faixa - barra) / 2;
+              const presentes = series.filter((s) => valor(i, s.id) > 0);
+              let acumulado = 0;
+              return (
+                <g key={pt.dia} class={ativo === i ? 'kt-empilhada-ativa' : undefined}>
+                  {presentes.map((s, n) => {
+                    const base = y(acumulado);
+                    acumulado += valor(i, s.id);
+                    const topo = y(acumulado);
+                    const ultima = n === presentes.length - 1;
+                    // Vão de 2 px entre os pedaços, sem sumir com o pedaço pequeno.
+                    const altura = Math.max(1, base - topo - (ultima ? 0 : ESPACO));
+                    const yPedaco = ultima ? topo : base - altura;
+                    return <path key={s.id} class={`kt-pedaco ${s.classe}`} d={ultima ? caminhoColuna(x, yPedaco, barra, altura) : `M${x},${yPedaco}h${barra}v${altura}h${-barra}Z`} />;
+                  })}
+                  <rect
+                    class="kt-alvo"
+                    x={MARGEM.esquerda + i * faixa}
+                    y={MARGEM.topo}
+                    width={faixa}
+                    height={areaA}
+                    tabIndex={0}
+                    aria-label={`${diaLongo(pt.dia)}: ${formatar(totalDoDia(i))}${presentes.length ? ` (${descrever(i)})` : ''}`}
+                    onPointerEnter={() => setAtivo(i)}
+                    onFocus={() => setAtivo(i)}
+                    onBlur={() => setAtivo(null)}
+                  />
+                </g>
+              );
+            })}
+            {rotulosX.map((i) =>
+              pontos[i] ? (
+                <text key={i} class="kt-eixo" x={MARGEM.esquerda + i * faixa + faixa / 2} y={ALTURA - 6} text-anchor={i === 0 ? 'start' : i === pontos.length - 1 ? 'end' : 'middle'}>
+                  {diaCurto(pontos[i].dia)}
+                </text>
+              ) : null,
+            )}
+          </svg>
+          {ativo != null && pontos[ativo] && (
+            <div class="kt-dica" role="status" style={{ left: `${Math.min(largura - 190, Math.max(0, MARGEM.esquerda + ativo * faixa + faixa / 2 - 90))}px` }}>
+              <strong>{formatar(totalDoDia(ativo))}</strong>
+              <span>{diaLongo(pontos[ativo].dia)}</span>
+              {series
+                .filter((s) => valor(ativo, s.id) > 0)
+                .map((s) => (
+                  <span key={s.id} class="kt-dica-serie">
+                    <span class={`kt-amostra ${s.classe}`} aria-hidden="true" />
+                    {s.rotulo}: {formatar(valor(ativo, s.id))}
+                  </span>
+                ))}
+            </div>
+          )}
+        </div>
+      )}
+    </figure>
+  );
+}
+
 /** Tendência sem eixo, no cartão do indicador: linha de 2 px e uma lavagem de 10% da mesma cor. */
 export function Sparkline({ pontos, rotulo }: { pontos: number[]; rotulo: string }) {
   const L = 120;
@@ -199,12 +369,15 @@ export function BarrasHorizontais({
   barras,
   formatar,
   vazio = 'Sem dados no período.',
+  acoes,
 }: {
   titulo: string;
   subtitulo?: string;
   barras: Barra[];
   formatar: (v: number) => string;
   vazio?: string;
+  /** Controles ao lado do título. */
+  acoes?: ComponentChildren;
 }) {
   const [ativa, setAtiva] = useState<number | null>(null);
   const maximo = Math.max(...barras.map((b) => b.valor), 0);
@@ -215,6 +388,7 @@ export function BarrasHorizontais({
           <h3>{titulo}</h3>
           {subtitulo && <p class="kt-muted">{subtitulo}</p>}
         </div>
+        {acoes}
       </figcaption>
       {barras.length === 0 || maximo === 0 ? (
         <p class="kt-muted kt-barras-vazio">{vazio}</p>

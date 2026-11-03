@@ -131,6 +131,15 @@ export interface Campanhas extends Situacao {
   campanhas: (NoCampanha & { conjuntos: (NoCampanha & { anuncios: NoCampanha[] })[] })[];
 }
 
+/** Alcance e frequência do período, por id do Meta. Vêm do Meta na hora, à parte do resto da aba. */
+export type AlcancePorId = Record<string, { alcance: number; frequencia: number }>;
+export interface AlcanceCampanhas {
+  campanha: AlcancePorId;
+  conjunto: AlcancePorId;
+  anuncio: AlcancePorId;
+  indisponivel: boolean;
+}
+
 export interface Criativos extends Situacao {
   moeda: string;
   criativos: (NoCampanha & { campanha: string | null; titulo: string | null; texto: string | null; miniatura: string | null })[];

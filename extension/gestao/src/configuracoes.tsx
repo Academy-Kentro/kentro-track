@@ -77,7 +77,7 @@ export function Configuracoes({ omni, api }: { omni: Omni; api: Api }) {
     <>
       <ConexaoMeta omni={omni} api={api} />
       <IntegracaoAtendimento omni={omni} api={api} />
-      <Webhooks omni={omni} api={api} />
+      <Webhooks api={api} />
       <FormulariosMeta api={api} />
       <EtapasFunil api={api} />
       <EventosMeta omni={omni} api={api} />

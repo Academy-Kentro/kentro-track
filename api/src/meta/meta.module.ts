@@ -10,14 +10,13 @@ import { EtapasService } from '../etapas/etapas.service';
 import { FormulariosController } from '../formularios/formularios.controller';
 import { FormulariosService } from '../formularios/formularios.service';
 import { ApiAbertaController } from '../leads/api-aberta.controller';
-import { InspetorController } from '../inspetor/inspetor.controller';
-import { InspetorService } from '../inspetor/inspetor.service';
 import { LinkPublicoController, LinksController } from '../links/links.controller';
 import { LinksService } from '../links/links.service';
 import { WebhooksController } from '../webhooks/webhooks.controller';
 import { WebhooksService } from '../webhooks/webhooks.service';
 import { AtendimentoController, GestaoLeadsController, KentroController } from '../leads/leads.controller';
 import { LeadsService } from '../leads/leads.service';
+import { AlcanceService } from '../painel/alcance.service';
 import { AnalisesService } from '../painel/analises.service';
 import { MidiaController } from '../painel/midia.controller';
 import { PainelController } from '../painel/painel.controller';
@@ -30,7 +29,7 @@ import { SincronizacaoService } from './sincronizacao/sincronizacao.service';
 
 @Module({
   imports: [ContasModule],
-  controllers: [MetaController, PainelController, MidiaController, AtendimentoController, GestaoLeadsController, KentroController, CapiController, EtapasController, FormulariosController, LinksController, LinkPublicoController, WebhooksController, InspetorController, ApiAbertaController],
+  controllers: [MetaController, PainelController, MidiaController, AtendimentoController, GestaoLeadsController, KentroController, CapiController, EtapasController, FormulariosController, LinksController, LinkPublicoController, WebhooksController, ApiAbertaController],
   providers: [
     {
       provide: ClienteGraph,
@@ -60,13 +59,13 @@ import { SincronizacaoService } from './sincronizacao/sincronizacao.service';
     AgendaSincronizacao,
     PainelService,
     AnalisesService,
+    AlcanceService,
     LeadsService,
     CapiService,
     EtapasService,
     FormulariosService,
     LinksService,
     WebhooksService,
-    InspetorService,
   ],
   exports: [ClienteGraph, ConexaoService, SincronizacaoService],
 })

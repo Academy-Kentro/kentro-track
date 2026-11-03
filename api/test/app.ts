@@ -20,7 +20,6 @@ export function configDeTeste(sobrescrever: Partial<ConfigApp> = {}): ConfigApp 
     meta: null,
     metaVersaoApi: 'v24.0',
     sincronizacaoAutomatica: false,
-    anthropicApiKey: null,
     ...sobrescrever,
   };
 }

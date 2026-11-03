@@ -1,52 +1,25 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Post, Put, Req, UseGuards } from '@nestjs/common';
-import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsOptional, IsString, Length, ValidateIf } from 'class-validator';
+import { Body, Controller, Get, HttpCode, Param, Post, Put, Req, UseGuards } from '@nestjs/common';
+import { IsOptional, IsString, Length, ValidateIf } from 'class-validator';
 import { ErroApi } from '../comum/erros';
 import { ChaveContaGuard, Papeis, RequisicaoDaConta } from '../contas/chave-conta.guard';
-import { ORIGENS_WEBHOOK, WebhooksService } from './webhooks.service';
+import { WebhooksService } from './webhooks.service';
 
 export class WebhookDto {
-  @IsString()
-  @Length(1, 80)
-  nome!: string;
-
   @IsOptional()
   @ValidateIf((_, v) => v !== null)
   @IsString()
   @Length(0, 500)
-  urlCriada?: string | null;
-
-  @IsOptional()
-  @ValidateIf((_, v) => v !== null)
-  @IsString()
-  @Length(0, 500)
-  urlAlterada?: string | null;
-
-  @IsOptional()
-  @ValidateIf((_, v) => v !== null)
-  @IsString()
-  @Length(0, 500)
-  urlMensagem?: string | null;
-
-  @IsOptional()
-  @ValidateIf((_, v) => v !== null)
-  @IsString()
-  @Length(0, 500)
-  urlOrigem?: string | null;
-
-  @IsOptional()
-  @IsArray()
-  @ArrayMaxSize(ORIGENS_WEBHOOK.length)
-  @IsIn(ORIGENS_WEBHOOK, { each: true })
-  origens?: string[];
-
-  @IsOptional()
-  @IsBoolean()
-  ativo?: boolean;
+  url?: string | null;
 }
 
-const uuid = new ParseUUIDPipe({ exceptionFactory: () => new ErroApi(404, 'NAO_ENCONTRADO', 'Webhook não encontrado.') });
+export class TestarWebhookDto {
+  @IsOptional()
+  @IsString()
+  @Length(0, 500)
+  url?: string;
+}
 
-/** Só o admin: os webhooks levam dados dos leads, com telefone completo, para fora. */
+/** Só o admin: o webhook leva os dados dos leads, com telefone completo, para fora. */
 @Controller('v1/webhooks')
 @UseGuards(ChaveContaGuard)
 @Papeis('admin')
@@ -58,19 +31,15 @@ export class WebhooksController {
     return this.webhooks.listar(req.conta.id);
   }
 
-  @Post()
-  criar(@Req() req: RequisicaoDaConta, @Body() dto: WebhookDto) {
-    return this.webhooks.criar(req.conta.id, dto);
+  @Put()
+  salvar(@Req() req: RequisicaoDaConta, @Body() dto: WebhookDto) {
+    return this.webhooks.salvar(req.conta.id, dto.url);
   }
 
-  @Put(':id')
-  atualizar(@Req() req: RequisicaoDaConta, @Param('id', uuid) id: string, @Body() dto: WebhookDto) {
-    return this.webhooks.atualizar(req.conta.id, id, dto);
-  }
-
-  @Delete(':id')
-  excluir(@Req() req: RequisicaoDaConta, @Param('id', uuid) id: string) {
-    return this.webhooks.excluir(req.conta.id, id);
+  @Post('testar')
+  @HttpCode(200)
+  testar(@Req() req: RequisicaoDaConta, @Body() dto: TestarWebhookDto) {
+    return this.webhooks.testar(req.conta.id, dto.url);
   }
 
   @Post('envios/:id/reenviar')

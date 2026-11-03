@@ -9,7 +9,7 @@ import { PrismaService } from '../comum/prisma.service';
 import { etapaPublica, EtapasService } from '../etapas/etapas.service';
 import { PainelService } from '../painel/painel.service';
 import { lerCodigo } from '../links/codigo';
-import { EventoWebhook, WebhooksService } from '../webhooks/webhooks.service';
+import { WebhooksService } from '../webhooks/webhooks.service';
 import { etapaDaFrase, valorDaMensagem } from './frases';
 import { mascararTelefone, normalizarTelefone } from './telefone';
 
@@ -109,11 +109,11 @@ export class LeadsService {
   ) {}
 
   /** Como o evento do pixel, falha aqui nunca derruba o atendimento. */
-  private async avisarWebhooks(lead: Lead, evento: EventoWebhook): Promise<void> {
+  private async avisarWebhook(lead: Lead): Promise<void> {
     try {
-      await this.webhooks.emitir(lead, evento);
+      await this.webhooks.emitir(lead);
     } catch (e) {
-      this.logger.error(`Webhook ${evento} do lead ${lead.id}: ${e instanceof Error ? e.message : e}`);
+      this.logger.error(`Webhook do lead ${lead.id}: ${e instanceof Error ? e.message : e}`);
     }
   }
 
@@ -229,7 +229,7 @@ export class LeadsService {
       // Só agora se soube que veio de anúncio: o "lead recebido" sai agora.
       if (dadosNovos.origem === 'ctwa') {
         await this.avisarMeta(atualizado, ['lead_recebido']);
-        await this.avisarWebhooks(atualizado, 'lead_source_update');
+        await this.avisarWebhook(atualizado);
       }
       return atualizado;
     }
@@ -277,7 +277,7 @@ export class LeadsService {
         autor,
       );
       await this.avisarMeta(lead, ['lead_recebido']);
-      await this.avisarWebhooks(lead, 'lead_create');
+      await this.avisarWebhook(lead);
       return lead;
     } catch (erro) {
       // Painel e automação chegaram juntos: o outro criou primeiro.
@@ -329,14 +329,14 @@ export class LeadsService {
       if (conversa) {
         const lead = await this.prisma.lead.update({ where: { id: conversa.id }, data: { ...dados, nome: conversa.nome ?? limpo(f.nome) ?? null } });
         await this.evento(lead.id, 'formulario', `${texto} A conversa no WhatsApp passou a ser deste formulário.`, { tipo: 'sistema' });
-        await this.avisarWebhooks(lead, 'lead_source_update');
+        await this.avisarWebhook(lead);
         return lead;
       }
       const lead = await this.prisma.lead.create({
         data: { contaId, ...dados, nome: limpo(f.nome) ?? null, telefone: fone?.telefone ?? null, telefoneChave: fone?.chave ?? null, recebidoEm: f.criadoEm },
       });
       await this.evento(lead.id, 'recebido', texto, { tipo: 'sistema' });
-      await this.avisarWebhooks(lead, 'lead_create');
+      await this.avisarWebhook(lead);
       return lead;
     } catch (erro) {
       // Duas leituras do mesmo formulário ao mesmo tempo: a outra gravou primeiro.
@@ -431,7 +431,6 @@ export class LeadsService {
         }
       }
     }
-    await this.avisarWebhooks(atualizado, 'lead_update');
     return atualizado;
   }
 
@@ -510,7 +509,6 @@ export class LeadsService {
   async registrarMensagem(contaId: string, dados: Atendimento, direcao: string, texto: string, autor: Autor): Promise<Lead | null> {
     if (direcao !== 'in' && direcao !== 'out') return null;
     const lead = await this.registrarAtendimento(contaId, dados, autor, false);
-    void this.webhooks.entregarMensagem(lead, direcao, texto).catch(() => undefined);
     if (direcao === 'in') {
       await this.prisma.$executeRaw`
         UPDATE leads SET ultima_mensagem_em = now() AT TIME ZONE 'UTC', ultima_mensagem_lead_em = now() AT TIME ZONE 'UTC' WHERE id = ${lead.id}::uuid`;
@@ -560,14 +558,9 @@ export class LeadsService {
     await this.evento(lead.id, 'link', `Chegou pelo link rastreável "${visita.link.nome}".`, { tipo: 'sistema' });
     if (novaOrigem) {
       await this.avisarMeta(atualizado, ['lead_recebido']);
-      await this.avisarWebhooks(atualizado, 'lead_source_update');
+      await this.avisarWebhook(atualizado);
     }
     return atualizado;
-  }
-
-  /** A etapa como o Inspetor recebe da tela. */
-  async etapaDaConta(contaId: string, etapa: string): Promise<EtapaFunil> {
-    return this.etapas.resolver(contaId, etapa);
   }
 
   /** A frase só leva adiante: "seu orçamento" mandado depois da venda não desfaz a venda. Lead perdido pode voltar. */

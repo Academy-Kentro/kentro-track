@@ -57,6 +57,28 @@ describe('leitura do lead do formulário', () => {
     });
   });
 
+  it('pergunta personalizada de nome, telefone ou e-mail ("Full name", "WhatsApp"...) também vira o contato', () => {
+    const lead = lerLead(
+      {
+        id: 'L2',
+        created_time: '2026-11-06T15:56:00+0000',
+        field_data: [
+          { name: 'Full name', values: ['Mariza Santos'] },
+          { name: 'phone_number', values: ['+5521970000000'] },
+          { name: 'E-mail', values: ['mariza@exemplo.com'] },
+          { name: 'você_é:', values: ['pensionista'] },
+        ],
+      },
+      { idMeta: 'F2', nome: 'IR', perguntas: {} },
+    );
+    expect(lead).toMatchObject({
+      nome: 'Mariza Santos',
+      telefone: '+5521970000000',
+      email: 'mariza@exemplo.com',
+      respostas: [{ chave: 'você_é:', pergunta: 'Você é:', resposta: 'pensionista' }],
+    });
+  });
+
   it('o envio à Kentro é plano (cada campo vira capture_<campo>) e as respostas vão em texto e uma a uma', () => {
     const payload = montarPayloadKentro({
       leadId: 'id',

@@ -40,8 +40,43 @@ const ROTULOS_PADRAO: Record<string, string> = {
   cpf: 'CPF',
 };
 
-/** Estes viram nome, telefone e e-mail do lead; o resto vira resposta. */
-const CONTATO = new Set(['full_name', 'first_name', 'last_name', 'email', 'phone_number']);
+type CampoDeContato = 'nome' | 'primeiro_nome' | 'sobrenome' | 'email' | 'telefone';
+
+/**
+ * Estes viram nome, telefone e e-mail do lead; o resto vira resposta. A chave é comparada já normalizada
+ * (chaveVariavel), porque pergunta personalizada chega com a chave que o anunciante digitou
+ * ("Full name", "Nome completo", "WhatsApp"...) e não com a chave padrão do Meta.
+ */
+const CONTATO: Record<string, CampoDeContato> = {
+  full_name: 'nome',
+  fullname: 'nome',
+  name: 'nome',
+  nome: 'nome',
+  nome_completo: 'nome',
+  seu_nome: 'nome',
+  seu_nome_completo: 'nome',
+  qual_o_seu_nome: 'nome',
+  qual_e_o_seu_nome: 'nome',
+  qual_seu_nome: 'nome',
+  first_name: 'primeiro_nome',
+  primeiro_nome: 'primeiro_nome',
+  last_name: 'sobrenome',
+  sobrenome: 'sobrenome',
+  email: 'email',
+  e_mail: 'email',
+  seu_email: 'email',
+  seu_e_mail: 'email',
+  phone_number: 'telefone',
+  phone: 'telefone',
+  telefone: 'telefone',
+  seu_telefone: 'telefone',
+  celular: 'telefone',
+  whatsapp: 'telefone',
+  seu_whatsapp: 'telefone',
+  telefone_whatsapp: 'telefone',
+};
+
+const campoDeContato = (chave: string): CampoDeContato | undefined => CONTATO[chaveVariavel(chave)];
 
 /** { chave: rótulo } das perguntas do formulário, para guardar e reler sem chamar o Meta de novo. */
 export function rotulosDasPerguntas(perguntas: PerguntaGraph[] | undefined): Record<string, string> {
@@ -56,15 +91,20 @@ function rotuloDaChave(chave: string): string {
 }
 
 export function lerLead(l: LeadGraph, formulario: { idMeta: string; nome: string; perguntas: Record<string, string> }): LeadDeFormulario {
-  const valor = (chave: string) =>
-    l.field_data
-      ?.find((c) => c.name === chave)
-      ?.values?.map((v) => String(v).trim())
+  const texto = (values?: string[]) =>
+    (values ?? [])
+      .map((v) => String(v).trim())
       .filter(Boolean)
       .join(', ') || undefined;
-  const nome = valor('full_name') ?? ([valor('first_name'), valor('last_name')].filter(Boolean).join(' ') || undefined);
+  /** O primeiro valor preenchido de cada campo de contato (padrão do Meta ou pergunta personalizada equivalente). */
+  const contato: Partial<Record<CampoDeContato, string>> = {};
+  for (const c of l.field_data ?? []) {
+    const campo = campoDeContato(c.name);
+    if (campo && !contato[campo]) contato[campo] = texto(c.values);
+  }
+  const nome = contato.nome ?? ([contato.primeiro_nome, contato.sobrenome].filter(Boolean).join(' ') || undefined);
   const respostas = (l.field_data ?? [])
-    .filter((c) => !CONTATO.has(c.name))
+    .filter((c) => !campoDeContato(c.name))
     .map((c) => ({
       chave: c.name,
       pergunta: formulario.perguntas[c.name] ?? ROTULOS_PADRAO[c.name] ?? rotuloDaChave(c.name),
@@ -77,8 +117,8 @@ export function lerLead(l: LeadGraph, formulario: { idMeta: string; nome: string
     formularioNome: formulario.nome,
     criadoEm: new Date(l.created_time),
     nome,
-    telefone: valor('phone_number'),
-    email: valor('email'),
+    telefone: contato.telefone,
+    email: contato.email,
     respostas,
     anuncioIdMeta: l.ad_id || undefined,
     conjuntoIdMeta: l.adset_id || undefined,
